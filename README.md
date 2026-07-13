@@ -82,13 +82,6 @@ Database file: `server/data/airline-tycoon.db` (gitignored).
 |---------------|--------|
 | ![Founding](docs/screenshots/01-founding.png) | ![Mobile](docs/screenshots/07-mobile-ops.png) |
 
-Regenerate shots (dev server must be running):
-
-```bash
-npm run screenshots
-# or: SHOT_URL=http://localhost:5173 CHROME_PATH=/usr/bin/chromium-browser node scripts/capture-screenshots.mjs
-```
-
 ## How to play (short)
 
 1. **Launch airline** (hub e.g. CGK).
