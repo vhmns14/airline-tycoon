@@ -11,13 +11,21 @@ node_modules
 dist
 dist-ssr
 *.local
+
+# Secrets & local env (never commit)
 .env
 .env.*
 !.env.example
+*.pem
+*.key
+credentials*.json
+secrets*
 
 # Cloud save database (keep server/data/.gitkeep)
 server/data/*.db
 server/data/*.db-*
+server/data/*.sqlite
+server/data/*.sqlite-*
 
 # Editor directories and files
 .vscode/*

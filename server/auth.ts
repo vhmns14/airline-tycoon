@@ -1,13 +1,34 @@
+import './loadEnv.ts'
+
 /**
  * Password hashing + JWT helpers.
+ * Secrets come only from env / local .env — never hardcode production values.
  */
 
+import { randomBytes } from 'node:crypto'
 import bcrypt from 'bcryptjs'
 import { SignJWT, jwtVerify } from 'jose'
 
-const JWT_SECRET = new TextEncoder().encode(
-  process.env.JWT_SECRET ?? 'airline-tycoon-dev-secret-change-me',
-)
+function resolveJwtSecret(): Uint8Array {
+  const fromEnv = process.env.JWT_SECRET?.trim()
+  if (fromEnv && fromEnv.length >= 16) {
+    return new TextEncoder().encode(fromEnv)
+  }
+  // Ephemeral dev secret (not in git). Tokens reset when process restarts.
+  const ephemeral = randomBytes(32).toString('hex')
+  if (!fromEnv) {
+    console.warn(
+      'JWT_SECRET not set — using ephemeral secret (set JWT_SECRET in .env for stable logins)',
+    )
+  } else {
+    console.warn(
+      'JWT_SECRET too short (min 16) — using ephemeral secret',
+    )
+  }
+  return new TextEncoder().encode(ephemeral)
+}
+
+const JWT_SECRET = resolveJwtSecret()
 const TOKEN_TTL = '30d'
 const BCRYPT_ROUNDS = 10
 

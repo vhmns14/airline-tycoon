@@ -34,13 +34,10 @@ import {
   verifyToken,
 } from './auth.ts'
 
-// Load project .env before reading ADMIN_* (does not override real env)
+// .env already loaded via loadEnv.ts import side-effect (and again here is fine)
 loadEnvFile()
 
 const PORT = Number(process.env.PORT ?? 3001)
-/** Defaults so `npm run dev` always has a working admin without manual export. */
-const DEFAULT_ADMIN_USER = 'kucing26'
-const DEFAULT_ADMIN_PASS = 'kucing26'
 
 const app = express()
 
@@ -66,24 +63,27 @@ function publicUser(user: {
 }
 
 /**
- * Ensure admin account exists.
- * - Creates if missing (password from env / defaults)
- * - If already exists: only promote is_admin (does NOT overwrite password,
- *   so change-password in UI survives restarts). Set ADMIN_RESET_PASSWORD=1
- *   to force password back to ADMIN_PASSWORD on boot.
+ * Ensure admin account from local env only (never hardcode credentials in source).
+ * Requires ADMIN_USERNAME + ADMIN_PASSWORD in .env or process env.
+ * Set ADMIN_RESET_PASSWORD=1 to force password back to ADMIN_PASSWORD on boot.
  */
 async function bootstrapAdmin(): Promise<void> {
-  const username =
-    process.env.ADMIN_USERNAME?.trim() || DEFAULT_ADMIN_USER
-  const password = process.env.ADMIN_PASSWORD || DEFAULT_ADMIN_PASS
+  const username = process.env.ADMIN_USERNAME?.trim()
+  const password = process.env.ADMIN_PASSWORD
+  if (!username || !password) {
+    console.log(
+      'Admin: skip seed (set ADMIN_USERNAME + ADMIN_PASSWORD in local .env — not committed)',
+    )
+    return
+  }
+  if (password.length < 6) {
+    console.warn('Admin: ADMIN_PASSWORD must be at least 6 characters — skipped')
+    return
+  }
+
   const forceReset =
     process.env.ADMIN_RESET_PASSWORD === '1' ||
     process.env.ADMIN_RESET_PASSWORD === 'true'
-
-  if (password.length < 6) {
-    console.warn('Admin: password must be at least 6 characters — skipped')
-    return
-  }
 
   const existing = findUserByUsername(username)
   if (existing) {
@@ -104,7 +104,7 @@ async function bootstrapAdmin(): Promise<void> {
   const id = randomUUID()
   const hash = await hashPassword(password)
   createUser(id, username, hash, true)
-  console.log(`Admin: created @${username} (change password after login)`)
+  console.log(`Admin: created @${username}`)
 }
 
 async function requireAuth(

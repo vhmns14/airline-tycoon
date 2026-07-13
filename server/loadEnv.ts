@@ -1,6 +1,8 @@
 /**
  * Load key=value pairs from project-root .env into process.env (no dependency).
  * Existing process.env wins (so real env / --env-file still override).
+ *
+ * Runs on import so JWT/admin config see .env before other modules read process.env.
  */
 
 import { existsSync, readFileSync } from 'node:fs'
@@ -31,3 +33,6 @@ export function loadEnvFile(filename = '.env'): void {
     }
   }
 }
+
+// Side-effect: load before auth/db consumers evaluate secrets
+loadEnvFile()

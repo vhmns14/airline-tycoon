@@ -105,23 +105,24 @@ Guest play still works offline in that browser only.
 | Variable | Default | Notes |
 |----------|---------|--------|
 | `PORT` | `3001` | API port |
-| `JWT_SECRET` | dev placeholder | **Change in production** |
-| `ADMIN_USERNAME` | `kucing26` | Admin account (auto-created on API boot) |
-| `ADMIN_PASSWORD` | `kucing26` | Initial password — change in Admin panel after login |
-| `ADMIN_RESET_PASSWORD` | off | Set `1` to force-reset admin password on next boot |
+| `JWT_SECRET` | — | **Required** for stable logins (min 16 chars). Put in local `.env` only |
+| `ADMIN_USERNAME` | — | Optional; creates/promotes admin on API boot |
+| `ADMIN_PASSWORD` | — | Optional; min 6 chars with username |
+| `ADMIN_RESET_PASSWORD` | off | Set `1` only to force-reset admin password on next boot |
 
-Copy `.env.example` → `.env` (gitignored). Defaults also work without a file.
+**Secrets never go in git.** Use a local file:
 
-**Default admin login**
+```bash
+cp .env.example .env
+# edit .env — JWT_SECRET, ADMIN_USERNAME, ADMIN_PASSWORD
+npm run dev
+```
 
-| | |
-|--|--|
-| Username | `kucing26` |
-| Password | `kucing26` |
+`.env` is gitignored. Only `.env.example` (empty placeholders) is committed.
 
-1. `npm run dev`
-2. **Log in / Save** → login with the credentials above  
-3. **🛡 Admin** (top bar or left rail) → player list + change password
+1. Fill local `.env` → `npm run dev`
+2. **Log in / Save** with your admin username/password  
+3. **🛡 Admin** → player list, gift cash, change password
 
 ## Project layout
 
