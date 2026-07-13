@@ -116,9 +116,10 @@ export function apiPutSave(
 ): Promise<{
   ok: boolean
   updatedAt: number
-  /** Admin cash gift applied during this push — client should bump local cash. */
+  /** Admin cash gift applied during this push — client should set local cash. */
   cashGranted?: number
   cash?: number
+  adminCashReceived?: number
 }> {
   return request('/api/save', {
     method: 'PUT',

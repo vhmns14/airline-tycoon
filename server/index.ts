@@ -314,6 +314,9 @@ app.put('/api/save', requireAuth, (req: AuthedRequest, res) => {
     updatedAt,
     cashGranted: applied.granted,
     cash: Number((state as { cash?: number }).cash ?? 0),
+    adminCashReceived: Number(
+      (state as { adminCashReceived?: number }).adminCashReceived ?? 0,
+    ),
   })
 })
 

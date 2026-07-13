@@ -1,6 +1,10 @@
 /**
  * Cloud save: pull on login, debounced push while playing.
  * Guest mode keeps localStorage only.
+ *
+ * Admin cash gifts: server tracks lifetime grants vs state.adminCashReceived.
+ * On push/pull the server applies any missing delta and returns cashGranted + cash;
+ * client always takes server cash when a grant is applied (avoids overwrite races).
  */
 
 import { useCallback, useEffect, useRef } from 'react'
@@ -15,6 +19,43 @@ import type { GameState } from '../types'
 
 const SAVE_DEBOUNCE_MS = 4_000
 
+function applyServerCashGrant(
+  cashGranted: number,
+  serverCash: number | undefined,
+  serverAdminReceived: number | undefined,
+) {
+  if (!cashGranted || cashGranted === 0) return
+  useGameStore.setState((s) => {
+    // Prefer absolute values from server (source of truth after grant apply)
+    const cash =
+      typeof serverCash === 'number' && Number.isFinite(serverCash)
+        ? serverCash
+        : s.cash + cashGranted
+    const adminCashReceived =
+      typeof serverAdminReceived === 'number' &&
+      Number.isFinite(serverAdminReceived)
+        ? serverAdminReceived
+        : (s.adminCashReceived ?? 0) + cashGranted
+    return {
+      cash,
+      peakCash: Math.max(s.peakCash, cash),
+      adminCashReceived,
+      notifications: [
+        {
+          id: crypto.randomUUID(),
+          at: Date.now(),
+          tone: (cashGranted >= 0 ? 'good' : 'warn') as 'good' | 'warn',
+          text:
+            cashGranted >= 0
+              ? `Admin gift +$${Math.round(cashGranted).toLocaleString()}`
+              : `Admin fine −$${Math.round(Math.abs(cashGranted)).toLocaleString()}`,
+        },
+        ...(s.notifications ?? []),
+      ].slice(0, 40),
+    }
+  })
+}
+
 export function useCloudSync() {
   const token = useAuthStore((s) => s.token)
   const user = useAuthStore((s) => s.user)
@@ -25,6 +66,9 @@ export function useCloudSync() {
   const lastPushedJson = useRef<string | null>(null)
   const timerRef = useRef<number | null>(null)
   const pullingRef = useRef(false)
+  const pushingRef = useRef(false)
+  /** Block auto-push until first cloud pull finishes (prevents grant wipe). */
+  const pullReadyRef = useRef(false)
 
   // Restore JWT session once on boot
   useEffect(() => {
@@ -35,37 +79,30 @@ export function useCloudSync() {
     async (force = false) => {
       const t = useAuthStore.getState().token
       if (!t) return
+      if (!pullReadyRef.current && !force) return
+      if (pushingRef.current) return
+      if (pullingRef.current) return
+
       const state = serializeGameState(useGameStore.getState())
       const json = JSON.stringify(state)
       if (!force && json === lastPushedJson.current) return
 
+      pushingRef.current = true
       setSyncStatus('saving', 'Saving to cloud…')
       try {
         const res = await apiPutSave(t, state)
-        // Admin cash gift applied server-side on this push — bump local wallet
         if (res.cashGranted && res.cashGranted !== 0) {
-          useGameStore.setState((s) => {
-            const cash = s.cash + res.cashGranted!
-            return {
-              cash,
-              peakCash: Math.max(s.peakCash, cash),
-              notifications: [
-                {
-                  id: crypto.randomUUID(),
-                  at: Date.now(),
-                  tone: 'good' as const,
-                  text: `Admin gift ${res.cashGranted! >= 0 ? '+' : ''}$${Math.round(res.cashGranted!).toLocaleString()}`,
-                },
-                ...(s.notifications ?? []),
-              ].slice(0, 40),
-            }
-          })
+          applyServerCashGrant(
+            res.cashGranted,
+            res.cash,
+            res.adminCashReceived,
+          )
           lastPushedJson.current = JSON.stringify(
             serializeGameState(useGameStore.getState()),
           )
           setSyncStatus(
             'saved',
-            `Cloud save OK · admin gift ${res.cashGranted >= 0 ? '+' : ''}$${Math.round(res.cashGranted).toLocaleString()}`,
+            `Cloud save OK · admin ${res.cashGranted >= 0 ? 'gift' : 'fine'} ${res.cashGranted >= 0 ? '+' : ''}$${Math.round(res.cashGranted).toLocaleString()}`,
             res.updatedAt,
           )
         } else {
@@ -75,6 +112,8 @@ export function useCloudSync() {
       } catch (e) {
         const msg = e instanceof Error ? e.message : 'Cloud save failed'
         setSyncStatus('error', msg)
+      } finally {
+        pushingRef.current = false
       }
     },
     [setSyncStatus],
@@ -86,51 +125,62 @@ export function useCloudSync() {
     pullingRef.current = true
     setSyncStatus('loading', 'Loading cloud save…')
     try {
-      const { save } = await apiGetSave(t)
+      const { save, cashGranted } = await apiGetSave(t)
       const local = serializeGameState(useGameStore.getState())
 
       if (save?.state) {
-        // Cloud is source of truth when logged in
+        // Cloud is source of truth when logged in (includes any admin gift apply)
         hydrateGameState(save.state as Partial<GameState>)
         lastPushedJson.current = JSON.stringify(
           serializeGameState(useGameStore.getState()),
         )
-        setSyncStatus(
-          'saved',
-          'Cloud progress loaded',
-          save.updatedAt,
-        )
+        if (cashGranted && cashGranted !== 0) {
+          setSyncStatus(
+            'saved',
+            `Cloud loaded · admin ${cashGranted >= 0 ? 'gift' : 'fine'} applied`,
+            save.updatedAt,
+          )
+        } else {
+          setSyncStatus('saved', 'Cloud progress loaded', save.updatedAt)
+        }
       } else if (local.setupComplete) {
-        // First login with local progress → upload
+        pullReadyRef.current = true
         await pushSave(true)
         setSyncStatus('saved', 'Local progress backed up to cloud')
       } else {
         lastPushedJson.current = JSON.stringify(local)
-        setSyncStatus('idle', 'No cloud save yet — progress will sync as you play')
+        setSyncStatus(
+          'idle',
+          'No cloud save yet — progress will sync as you play',
+        )
       }
     } catch (e) {
       const msg = e instanceof Error ? e.message : 'Could not load cloud save'
       setSyncStatus('error', msg)
     } finally {
       pullingRef.current = false
+      pullReadyRef.current = true
     }
   }, [pushSave, setSyncStatus])
 
-  // After session ready + logged in → pull cloud
+  // After session ready + logged in → pull cloud first
   useEffect(() => {
     if (hydrating) return
     if (!token || !user) {
       lastPushedJson.current = null
+      pullReadyRef.current = false
       return
     }
+    pullReadyRef.current = false
     void pullAndMerge()
   }, [hydrating, token, user, pullAndMerge])
 
-  // Debounced auto-save on any game state change
+  // Debounced auto-save on any game state change (after pull ready)
   useEffect(() => {
     if (!token || hydrating) return
 
     const unsub = useGameStore.subscribe(() => {
+      if (!pullReadyRef.current) return
       if (timerRef.current) window.clearTimeout(timerRef.current)
       timerRef.current = window.setTimeout(() => {
         void pushSave(false)
@@ -148,6 +198,7 @@ export function useCloudSync() {
     if (!token) return
 
     const flush = () => {
+      if (!pullReadyRef.current) return
       void pushSave(true)
     }
     const onVis = () => {

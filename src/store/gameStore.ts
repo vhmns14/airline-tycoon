@@ -288,6 +288,7 @@ function createInitialState(): GameState {
     allianceLevel: 0,
     cash: preset.cash,
     peakCash: preset.cash,
+    adminCashReceived: 0,
     todayRevenue: 0,
     todayCosts: 0,
     revenueDayKey: localDayKey(new Date(now)),
@@ -425,6 +426,7 @@ export function serializeGameState(s: GameState): GameState {
     allianceLevel: s.allianceLevel,
     cash: s.cash,
     peakCash: s.peakCash,
+    adminCashReceived: s.adminCashReceived ?? 0,
     todayRevenue: s.todayRevenue,
     todayCosts: s.todayCosts,
     revenueDayKey: s.revenueDayKey,
@@ -509,6 +511,10 @@ export function mergeGameState(
     branding: { ...base.branding, ...persisted.branding },
     difficulty: (persisted.difficulty as Difficulty | undefined) ?? 'normal',
     timeScale: clampTimeScale(persisted.timeScale),
+    adminCashReceived:
+      typeof persisted.adminCashReceived === 'number'
+        ? persisted.adminCashReceived
+        : (current.adminCashReceived ?? 0),
     hangarSlots: persisted.hangarSlots ?? base.hangarSlots,
     rivals: persisted.rivals?.length ? persisted.rivals : DEFAULT_RIVALS,
     lastRivalTickAt: persisted.lastRivalTickAt ?? Date.now(),

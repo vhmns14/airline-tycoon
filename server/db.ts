@@ -223,8 +223,8 @@ export function listPlayers(): PlayerSummary[] {
               s.updated_at AS save_updated_at, s.state_json,
               COALESCE((
                 SELECT SUM(g.amount) FROM pending_cash_grants g
-                WHERE g.user_id = u.id AND g.applied_at IS NULL
-              ), 0) AS pending_cash
+                WHERE g.user_id = u.id
+              ), 0) AS total_granted
        FROM users u
        LEFT JOIN game_saves s ON s.user_id = u.id
        ORDER BY COALESCE(s.updated_at, 0) DESC, u.created_at DESC`,
@@ -236,7 +236,7 @@ export function listPlayers(): PlayerSummary[] {
     is_admin: number
     save_updated_at: number | null
     state_json: string | null
-    pending_cash: number
+    total_granted: number
   }>
 
   return rows.map((r) => {
@@ -247,6 +247,7 @@ export function listPlayers(): PlayerSummary[] {
     let fleet: number | null = null
     let routes: number | null = null
     let setupComplete: boolean | null = null
+    let adminCashReceived = 0
 
     if (r.state_json) {
       try {
@@ -258,6 +259,7 @@ export function listPlayers(): PlayerSummary[] {
           ownedAircraft?: unknown[]
           routes?: unknown[]
           setupComplete?: boolean
+          adminCashReceived?: number
         }
         airlineName = st.branding?.name?.trim() || null
         hubId = st.hubId ?? null
@@ -268,10 +270,14 @@ export function listPlayers(): PlayerSummary[] {
         routes = Array.isArray(st.routes) ? st.routes.length : null
         setupComplete =
           typeof st.setupComplete === 'boolean' ? st.setupComplete : null
+        adminCashReceived = Number(st.adminCashReceived ?? 0) || 0
       } catch {
         /* corrupt save — leave nulls */
       }
     }
+
+    const totalGranted = Number(r.total_granted) || 0
+    const pendingCash = totalGranted - adminCashReceived
 
     return {
       id: r.id,
@@ -286,7 +292,7 @@ export function listPlayers(): PlayerSummary[] {
       fleet,
       routes,
       setupComplete,
-      pendingCash: Number(r.pending_cash) || 0,
+      pendingCash,
     }
   })
 }
@@ -322,101 +328,107 @@ export function createCashGrant(
   }
 }
 
-export function pendingCashTotal(userId: string): number {
+/** Lifetime sum of all admin cash gifts for this user (never discarded). */
+export function totalCashGranted(userId: string): number {
   const row = db
     .prepare(
       `SELECT COALESCE(SUM(amount), 0) AS n FROM pending_cash_grants
-       WHERE user_id = ? AND applied_at IS NULL`,
+       WHERE user_id = ?`,
     )
     .get(userId) as { n: number }
   return Number(row?.n ?? 0)
 }
 
-export function listPendingGrants(userId: string): CashGrant[] {
+export function listAllGrants(userId: string): CashGrant[] {
   return db
     .prepare(
       `SELECT id, user_id, amount, note, granted_by, created_at, applied_at
        FROM pending_cash_grants
-       WHERE user_id = ? AND applied_at IS NULL
+       WHERE user_id = ?
        ORDER BY created_at ASC`,
     )
     .all(userId) as CashGrant[]
 }
 
-function markGrantsApplied(ids: string[], at: number): void {
-  if (ids.length === 0) return
-  const stmt = db.prepare(
-    'UPDATE pending_cash_grants SET applied_at = ? WHERE id = ?',
-  )
-  for (const id of ids) stmt.run(at, id)
-}
-
 /**
- * Fold pending admin cash gifts into a game state object.
- * Mutates a shallow-cloned state; marks grants applied.
- * Returns total amount granted this call.
+ * Idempotent admin cash apply.
+ *
+ * Tracks how much gift total the save already absorbed via `adminCashReceived`.
+ * delta = sum(all grants) - adminCashReceived → add to cash.
+ * Survives client overwriting cash: next sync re-applies any missing delta.
  */
 export function applyPendingCashGrants(
   userId: string,
   state: Record<string, unknown>,
 ): { state: Record<string, unknown>; granted: number; notes: string[] } {
-  const grants = listPendingGrants(userId)
-  if (grants.length === 0) {
+  const total = totalCashGranted(userId)
+  const received = Number(state.adminCashReceived ?? 0)
+  const delta = total - received
+
+  if (!Number.isFinite(delta) || delta === 0) {
+    // Still stamp the counter so future loads are stable
+    if (total > 0 && received !== total) {
+      return {
+        state: { ...state, adminCashReceived: total },
+        granted: 0,
+        notes: [],
+      }
+    }
     return { state, granted: 0, notes: [] }
   }
 
-  const total = grants.reduce((s, g) => s + Number(g.amount), 0)
-  const notes = grants.map((g) => {
-    const who = g.granted_by ? ` from @${g.granted_by}` : ''
-    const n = g.note ? ` — ${g.note}` : ''
-    return `Admin gift +$${Math.round(g.amount).toLocaleString()}${who}${n}`
-  })
-
-  const cash = Number(state.cash ?? 0) + total
+  const cash = Number(state.cash ?? 0) + delta
   const peakCash = Math.max(Number(state.peakCash ?? 0), cash)
   const now = Date.now()
 
-  // Best-effort finance log + toast on the save blob
   const financeLog = Array.isArray(state.financeLog)
     ? [...(state.financeLog as unknown[])]
     : []
-  for (const g of grants) {
-    financeLog.unshift({
-      id: g.id,
-      at: now,
-      kind: 'other',
-      label: `Admin gift${g.note ? `: ${g.note}` : ''}${g.granted_by ? ` (@${g.granted_by})` : ''}`,
-      amount: g.amount,
-    })
-  }
+  financeLog.unshift({
+    id: crypto.randomUUID(),
+    at: now,
+    kind: 'other',
+    label:
+      delta >= 0
+        ? `Admin gift +$${Math.round(delta).toLocaleString()}`
+        : `Admin fine −$${Math.round(Math.abs(delta)).toLocaleString()}`,
+    amount: delta,
+  })
 
   const notifications = Array.isArray(state.notifications)
     ? [...(state.notifications as unknown[])]
     : []
-  for (const text of notes) {
-    notifications.unshift({
-      id: crypto.randomUUID(),
-      at: now,
-      tone: 'good',
-      text,
-    })
-  }
+  notifications.unshift({
+    id: crypto.randomUUID(),
+    at: now,
+    tone: delta >= 0 ? 'good' : 'warn',
+    text:
+      delta >= 0
+        ? `Admin gift +$${Math.round(delta).toLocaleString()}`
+        : `Admin fine −$${Math.round(Math.abs(delta)).toLocaleString()}`,
+  })
 
-  markGrantsApplied(
-    grants.map((g) => g.id),
-    now,
-  )
+  // Mark rows applied for admin UI bookkeeping (optional; ledger still uses SUM)
+  db.prepare(
+    `UPDATE pending_cash_grants SET applied_at = ?
+     WHERE user_id = ? AND applied_at IS NULL`,
+  ).run(now, userId)
 
   return {
     state: {
       ...state,
       cash,
       peakCash,
+      adminCashReceived: total,
       financeLog: financeLog.slice(0, 80),
       notifications: notifications.slice(0, 40),
     },
-    granted: total,
-    notes,
+    granted: delta,
+    notes: [
+      delta >= 0
+        ? `Admin gift +$${Math.round(delta).toLocaleString()}`
+        : `Admin fine −$${Math.round(Math.abs(delta)).toLocaleString()}`,
+    ],
   }
 }
 

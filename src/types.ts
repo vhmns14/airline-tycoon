@@ -291,6 +291,11 @@ export type GameState = {
 
   cash: number
   peakCash: number
+  /**
+   * Lifetime admin cash gifts already absorbed into `cash`.
+   * Server compares this to sum(grants) so gifts re-apply after overwrites.
+   */
+  adminCashReceived: number
   todayRevenue: number
   todayCosts: number
   revenueDayKey: string
