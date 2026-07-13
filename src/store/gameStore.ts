@@ -12,6 +12,7 @@ import { localDayKey } from '../lib/time'
 import { evaluateNewAchievements, ACHIEVEMENT_DEFS } from '../sim/achievements'
 import { applyCabinDensity, defaultCabin } from '../sim/cabin'
 import { slotFeeWithHub, validateRouteAirports } from '../sim/airportRules'
+import { fairCargoRate } from '../sim/economy'
 import { DIFFICULTY, hangarExpandCost } from '../sim/difficulty'
 import { eventExpired, maybeSpawnEvent } from '../sim/events'
 import {
@@ -183,7 +184,15 @@ type GameActions = {
   setInsurance: (on: boolean) => boolean
   claimInsurance: (claimId: string) => boolean
   signContract: (offerIndex: number) => boolean
-  acceptMapCargo: (offerId: string) => boolean
+  /**
+   * Accept map cargo job and assign a freighter (opens A→B route, parks at pickup).
+   * `dispatchNow` starts the leg immediately if fuel allows.
+   */
+  acceptMapCargo: (
+    offerId: string,
+    aircraftInstanceId: string,
+    dispatchNow?: boolean,
+  ) => boolean
   buyUsedAircraft: (listingId: string) => boolean
   refreshUsedMarket: () => void
   claimSeasonReward: () => boolean
@@ -1728,34 +1737,167 @@ export const useGameStore = create<GameStore>()(
         set((s) => ({ soundEnabled: !s.soundEnabled }))
       },
 
-      acceptMapCargo: (offerId) => {
+      acceptMapCargo: (offerId, aircraftInstanceId, dispatchNow = false) => {
         if (get().gameOver || !get().setupComplete) return false
         const offer = get().mapCargoOffers.find((o) => o.id === offerId)
         if (!offer || offer.kind !== 'map_cargo') return false
+        if (!offer.fromId || !offer.toId) return false
         if (
           get().contracts.filter((c) => c.kind === 'map_cargo').length >=
           maxActiveMapCargoJobs()
         ) {
           return false
         }
-        const tons = offer.cargoTons ?? 0
-        const hasFreighter = get().ownedAircraft.some((p) =>
-          freighterCanCarry(p, tons),
+
+        const state = get()
+        const plane = state.ownedAircraft.find(
+          (a) => a.instanceId === aircraftInstanceId,
         )
-        const fromC =
-          airports.find((a) => a.id === offer.fromId)?.code ?? '?'
-        const toC = airports.find((a) => a.id === offer.toId)?.code ?? '?'
+        if (!plane) return false
+        const tons = offer.cargoTons ?? 0
+        if (!freighterCanCarry(plane, tons)) {
+          set((s) => ({
+            notifications: pushNote(
+              s.notifications,
+              'warn',
+              `Freighter too small for ${tons}t cargo`,
+            ),
+          }))
+          return false
+        }
+        if (plane.flight?.status === 'IN_FLIGHT') {
+          set((s) => ({
+            notifications: pushNote(
+              s.notifications,
+              'warn',
+              'Pick a freighter that is not in flight',
+            ),
+          }))
+          return false
+        }
+        if (isAog(plane)) {
+          set((s) => ({
+            notifications: pushNote(
+              s.notifications,
+              'warn',
+              'Freighter is AOG / in maintenance',
+            ),
+          }))
+          return false
+        }
+
+        const from = airports.find((a) => a.id === offer.fromId)
+        const to = airports.find((a) => a.id === offer.toId)
+        if (!from || !to) return false
+
+        const distanceKm = haversineKm(from.coords, to.coords)
+        const rangeErr = validateRouteAirports(plane, from, to, distanceKm)
+        if (rangeErr) {
+          set((s) => ({
+            notifications: pushNote(s.notifications, 'warn', rangeErr),
+          }))
+          return false
+        }
+
+        // Map cargo may leave the hub network — still pay softened slot fee
+        const cong = congestionMult(
+          offer.fromId,
+          offer.toId,
+          state.routes,
+          state.rivals,
+        )
+        const aDisc =
+          state.allianceId && (state.allianceLevel ?? 0) >= 2 ? 0.12 : 0
+        // 55% of normal slots — contract haul, not a permanent network open
+        const fee = Math.round(
+          slotFeeWithHub(from, to, state.hubId, cong, aDisc) * 0.55,
+        )
+        if (state.cash < fee) {
+          set((s) => ({
+            notifications: pushNote(
+              s.notifications,
+              'warn',
+              `Need ${fee.toLocaleString()} cash for cargo slot fees`,
+            ),
+          }))
+          return false
+        }
+
+        const now = Date.now()
+        const cargoRate = Math.max(1, Math.round(fairCargoRate(distanceKm)))
+        // Drop any existing route on this freighter
+        const routesWithout = state.routes.filter(
+          (r) => r.aircraftInstanceId !== aircraftInstanceId,
+        )
+        const route: Route = {
+          id: crypto.randomUUID(),
+          aircraftInstanceId,
+          fromId: offer.fromId,
+          toId: offer.toId,
+          ticketPrice: cargoRate,
+          businessPrice: 0,
+          firstPrice: 0,
+          frequency: 1,
+          flightNumber: nextFlightNumber(routesWithout),
+          autoFly: false,
+          // One delivery leg — park after; reverse is optional
+          scheduleLegsLeft: 0,
+        }
+
+        // Reposition freighter to pickup (contract ferry, free)
+        let flight = groundedFlight(offer.fromId, offer.toId)
+        let fuelStock = state.fuelStock
+        let departed = false
+
+        if (dispatchNow) {
+          const fMult = fuelDepotMult(state.hubFacilities, offer.fromId)
+          const scale = state.timeScale ?? 1
+          const dep = tryDepart(
+            { ...plane, flight },
+            offer.fromId,
+            offer.toId,
+            now,
+            fuelStock,
+            1,
+            fMult,
+            scale,
+          )
+          if (dep) {
+            flight = dep.flight
+            fuelStock = Math.max(0, fuelStock - dep.fuelBurned)
+            departed = true
+          }
+        }
+
         set((s) => ({
+          cash: s.cash - fee,
+          todayCosts: s.todayCosts + fee,
+          fuelStock,
           mapCargoOffers: s.mapCargoOffers.filter((o) => o.id !== offerId),
-          contracts: [...s.contracts, { ...offer, lastPayoutAt: Date.now() }],
+          contracts: [
+            ...s.contracts,
+            { ...offer, lastPayoutAt: now },
+          ],
+          routes: [...routesWithout, route],
+          ownedAircraft: s.ownedAircraft.map((a) =>
+            a.instanceId === aircraftInstanceId ? { ...a, flight } : a,
+          ),
+          financeLog: pushLog(s.financeLog, {
+            at: now,
+            kind: 'slot',
+            label: `Cargo slot ${from.code}–${to.code}`,
+            amount: -fee,
+          }),
           notifications: pushNote(
             s.notifications,
-            hasFreighter ? 'good' : 'warn',
-            hasFreighter
-              ? `Cargo job ${fromC}→${toC} · ${tons}t · fly freighter A→B`
-              : `Cargo job ${fromC}→${toC} · need freighter ≥${tons}t capacity`,
+            'good',
+            departed
+              ? `📦 ${route.flightNumber} ${from.code}→${to.code} departed · ${tons}t · +$${Math.round(offer.deliveryPayout ?? 0).toLocaleString()} on delivery`
+              : `📦 ${plane.model.split('(')[0].trim()} assigned ${from.code}→${to.code} · ${tons}t · ready to Fly (−$${fee.toLocaleString()} slots)`,
           ),
         }))
+        if (departed) playSfx('depart', get().soundEnabled)
+        else playSfx('money', get().soundEnabled)
         return true
       },
 

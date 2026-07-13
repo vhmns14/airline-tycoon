@@ -7,6 +7,7 @@ import { airports } from '../../data/airports'
 import { cargoCatalog, passengerCatalog } from '../../data/aircraft'
 import { AircraftThumb } from '../ui/AircraftThumb'
 import { formatMoney, formatNumber } from '../../lib/format'
+import { haversineKm } from '../../lib/geo'
 import { exportSaveDownload, importSaveFromFile } from '../../lib/saveIo'
 import { formatDurationHm } from '../../lib/time'
 import { ACHIEVEMENT_DEFS } from '../../sim/achievements'
@@ -14,6 +15,7 @@ import { estimateCompanyValue, INSURANCE_DAILY } from '../../sim/ceo'
 import { CONTRACT_OFFERS } from '../../sim/contracts'
 import { densityInfo } from '../../sim/cabin'
 import { hangarExpandCost } from '../../sim/difficulty'
+import type { MapCargoLane } from '../../sim/mapCargo'
 import { MARKETING_TIERS } from '../../sim/marketing'
 import {
   requiredCabinCrew,
@@ -26,6 +28,7 @@ import { TIME_SCALE_OPTIONS } from '../../sim/timeScale'
 import { seasonComplete, seasonReward, rankScores } from '../../sim/season'
 import { airports as airportList } from '../../data/airports'
 import type { CabinDensity, TimeScale } from '../../types'
+import { MapCargoAssignModal } from '../map/MapCargoAssignModal'
 
 export function CompanyPanel() {
   const branding = useGameStore((s) => s.branding)
@@ -81,13 +84,13 @@ export function CompanyPanel() {
   const toggleSound = useGameStore((s) => s.toggleSound)
   const setTimeScale = useGameStore((s) => s.setTimeScale)
   const claimSeasonReward = useGameStore((s) => s.claimSeasonReward)
-  const acceptMapCargo = useGameStore((s) => s.acceptMapCargo)
   const upgradeAlliance = useGameStore((s) => s.upgradeAlliance)
   const fileRef = useRef<HTMLInputElement>(null)
 
   const [name, setName] = useState(branding.name)
   const [raiseAmt, setRaiseAmt] = useState('500000')
   const [msg, setMsg] = useState<string | null>(null)
+  const [assignLane, setAssignLane] = useState<MapCargoLane | null>(null)
 
   const needP = requiredPilots(fleet)
   const needC = requiredCabinCrew(fleet)
@@ -532,7 +535,7 @@ export function CompanyPanel() {
       {/* Map cargo offers — full board also lives under Map tab */}
       <Section title="Map cargo jobs">
         <p className="mb-1.5 text-xs text-[var(--game-dim)]">
-          Accept · open freighter route A→B · Fly · orange lane on Map
+          Accept → pilih freighter → route A→B otomatis · Map filter Cargo
         </p>
         <ul className="space-y-1.5">
           {mapCargoOffers.slice(0, 5).map((o) => {
@@ -568,15 +571,29 @@ export function CompanyPanel() {
                 <button
                   type="button"
                   className="btn-game btn-game-primary !min-h-[2.5rem] !py-1 !text-xs"
-                  onClick={() =>
-                    setMsg(
-                      acceptMapCargo(o.id)
-                        ? 'Job accepted — open Map filter Cargo or Routes to fly A→B.'
-                        : 'Max jobs or invalid.',
-                    )
-                  }
+                  onClick={() => {
+                    if (!from || !to || !o.fromId || !o.toId) {
+                      setMsg('Invalid offer.')
+                      return
+                    }
+                    setAssignLane({
+                      id: o.id,
+                      fromId: o.fromId,
+                      toId: o.toId,
+                      fromCode: from.code,
+                      toCode: to.code,
+                      fromCity: from.city,
+                      toCity: to.city,
+                      km: Math.round(haversineKm(from.coords, to.coords)),
+                      tons,
+                      payout: o.deliveryPayout ?? 0,
+                      active: false,
+                      endsAt: o.endsAt,
+                      label: o.label,
+                    })
+                  }}
                 >
-                  Accept
+                  Accept…
                 </button>
               </li>
             )
@@ -603,6 +620,13 @@ export function CompanyPanel() {
                 )
               })}
           </ul>
+        )}
+        {assignLane && (
+          <MapCargoAssignModal
+            lane={assignLane}
+            onClose={() => setAssignLane(null)}
+            onDone={(m) => setMsg(m)}
+          />
         )}
       </Section>
 

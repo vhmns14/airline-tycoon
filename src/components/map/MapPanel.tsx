@@ -7,9 +7,12 @@ import { formatMoney } from '../../lib/format'
 import {
   bestFreighterForJob,
   formatCargoEta,
+  freighterPicksForJob,
   mapCargoLanes,
+  type MapCargoLane,
 } from '../../sim/mapCargo'
 import { useGameStore } from '../../store/gameStore'
+import { MapCargoAssignModal } from './MapCargoAssignModal'
 import { WorldMap, type MapFilterMode } from './WorldMap'
 
 const FILTERS: { id: MapFilterMode; label: string }[] = [
@@ -25,8 +28,9 @@ export function MapPanel() {
   const mapCargoOffers = useGameStore((s) => s.mapCargoOffers)
   const contracts = useGameStore((s) => s.contracts)
   const fleet = useGameStore((s) => s.ownedAircraft)
-  const acceptMapCargo = useGameStore((s) => s.acceptMapCargo)
+  const routes = useGameStore((s) => s.routes)
   const [msg, setMsg] = useState<string | null>(null)
+  const [assignLane, setAssignLane] = useState<MapCargoLane | null>(null)
 
   const lanes = useMemo(
     () => mapCargoLanes(mapCargoOffers, contracts),
@@ -65,12 +69,11 @@ export function MapPanel() {
         <WorldMap filterMode={filter} />
       </div>
 
-      {/* Cargo jobs board — always visible so freighter/OD is clear */}
       <div className="game-panel">
         <div className="game-panel-header">
           <h3 className="game-panel-title">📦 Map cargo</h3>
           <span className="text-[10px] text-[var(--game-dim)]">
-            Freighter A→B · lump sum on delivery
+            Accept → pick freighter → Fly
           </span>
         </div>
         <div className="game-panel-body space-y-3">
@@ -86,6 +89,19 @@ export function MapPanel() {
               <ul className="grid gap-2 sm:grid-cols-2">
                 {active.map((l) => {
                   const freighter = bestFreighterForJob(fleet, l.tons)
+                  const onRoute = routes.find(
+                    (r) =>
+                      r.fromId === l.fromId &&
+                      r.toId === l.toId &&
+                      fleet.some(
+                        (p) =>
+                          p.instanceId === r.aircraftInstanceId &&
+                          p.role === 'cargo',
+                      ),
+                  )
+                  const assigned = onRoute
+                    ? fleet.find((p) => p.instanceId === onRoute.aircraftInstanceId)
+                    : null
                   return (
                     <li
                       key={l.id}
@@ -106,9 +122,11 @@ export function MapPanel() {
                         expires {formatCargoEta(l.endsAt)}
                       </p>
                       <p className="mt-1 text-[10px] text-[var(--game-dim)]">
-                        {freighter
-                          ? `✓ ${freighter.model} can lift this`
-                          : `⚠ Need freighter ≥${l.tons}t (Hangar → cargo)`}
+                        {assigned
+                          ? `✈ ${assigned.model.split('(')[0].trim()} · ${onRoute?.flightNumber ?? 'route'}`
+                          : freighter
+                            ? `No route yet — freighter ${freighter.model.split('(')[0].trim()} available`
+                            : `⚠ Need freighter ≥${l.tons}t`}
                       </p>
                     </li>
                   )
@@ -128,7 +146,12 @@ export function MapPanel() {
             ) : (
               <ul className="grid gap-2 sm:grid-cols-2">
                 {offers.map((l) => {
-                  const freighter = bestFreighterForJob(fleet, l.tons)
+                  const ready = freighterPicksForJob(
+                    fleet,
+                    routes,
+                    l.tons,
+                    l.fromId,
+                  ).filter((p) => p.selectable).length
                   return (
                     <li
                       key={l.id}
@@ -148,25 +171,17 @@ export function MapPanel() {
                         </div>
                         <p className="text-[10px] text-[var(--game-dim)]">
                           {l.fromCity} → {l.toCity} · {formatCargoEta(l.endsAt)} left
-                          {freighter
-                            ? ` · ${freighter.model.split('(')[0].trim()} OK`
-                            : ` · need ≥${l.tons}t freighter`}
+                          {ready > 0
+                            ? ` · ${ready} freighter${ready > 1 ? 's' : ''} ready`
+                            : ` · need freighter ≥${l.tons}t`}
                         </p>
                       </div>
                       <button
                         type="button"
                         className="btn-game btn-game-primary !min-h-[2.5rem] !shrink-0 !py-1.5 !text-xs"
-                        onClick={() => {
-                          const ok = acceptMapCargo(l.id)
-                          setMsg(
-                            ok
-                              ? `Accepted ${l.fromCode}→${l.toCode}. Open a cargo route & Fly.`
-                              : 'Max active jobs (4) or invalid offer.',
-                          )
-                          if (ok) setFilter('cargo')
-                        }}
+                        onClick={() => setAssignLane(l)}
                       >
-                        Accept
+                        Accept…
                       </button>
                     </li>
                   )
@@ -176,6 +191,17 @@ export function MapPanel() {
           </div>
         </div>
       </div>
+
+      {assignLane && (
+        <MapCargoAssignModal
+          lane={assignLane}
+          onClose={() => setAssignLane(null)}
+          onDone={(m) => {
+            setMsg(m)
+            setFilter('cargo')
+          }}
+        />
+      )}
     </div>
   )
 }

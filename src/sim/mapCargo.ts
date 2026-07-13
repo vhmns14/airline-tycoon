@@ -154,6 +154,100 @@ export function bestFreighterForJob(
   return ok[0] ?? null
 }
 
+/** Where a plane is parked (null if airborne / unknown). */
+export function planeLocationId(plane: OwnedAircraft): string | null {
+  const f = plane.flight
+  if (!f) return null
+  if (f.status === 'IN_FLIGHT') return null
+  return f.legFromId || null
+}
+
+export type FreighterPick = {
+  plane: OwnedAircraft
+  /** Can lift the job payload. */
+  canCarry: boolean
+  /** In the air right now. */
+  inFlight: boolean
+  /** Already assigned to a passenger/cargo route (will be reassigned). */
+  hasRoute: boolean
+  /** Parked airport id, if known. */
+  locationId: string | null
+  locationCode: string
+  /** Already sitting at pickup airport. */
+  atPickup: boolean
+  /** Selectable for this job. */
+  selectable: boolean
+  reason?: string
+}
+
+/**
+ * List freighters for the accept-job picker, best candidates first.
+ */
+export function freighterPicksForJob(
+  fleet: OwnedAircraft[],
+  routes: { aircraftInstanceId: string }[],
+  tons: number,
+  fromId: string,
+  nowMs = Date.now(),
+): FreighterPick[] {
+  const routeSet = new Set(routes.map((r) => r.aircraftInstanceId))
+  const picks: FreighterPick[] = []
+
+  for (const plane of fleet) {
+    if (plane.role !== 'cargo') continue
+    const canCarry = freighterCanCarry(plane, tons)
+    const inFlight = plane.flight?.status === 'IN_FLIGHT'
+    const aog =
+      plane.aogUntil != null && plane.aogUntil > nowMs
+    const hasRoute = routeSet.has(plane.instanceId)
+    const locationId = planeLocationId(plane)
+    const locationCode =
+      (locationId && airports.find((a) => a.id === locationId)?.code) ||
+      (plane.flight == null ? 'Hangar' : '?')
+    const atPickup = locationId === fromId
+
+    let selectable = true
+    let reason: string | undefined
+    if (!canCarry) {
+      selectable = false
+      reason = `Need ≥${tons}t (has ${plane.capacity}t)`
+    } else if (inFlight) {
+      selectable = false
+      reason = 'In flight'
+    } else if (aog) {
+      selectable = false
+      reason = 'AOG / maintenance'
+    } else if (hasRoute) {
+      reason = 'Will leave current route'
+    } else if (!atPickup && locationId) {
+      reason = `Reposition ${locationCode}→pickup`
+    } else if (!locationId) {
+      reason = 'Position at pickup'
+    }
+
+    picks.push({
+      plane,
+      canCarry,
+      inFlight,
+      hasRoute,
+      locationId,
+      locationCode,
+      atPickup,
+      selectable,
+      reason,
+    })
+  }
+
+  // Prefer: can lift → free → at pickup → smallest capable freighter
+  picks.sort((a, b) => {
+    if (a.selectable !== b.selectable) return a.selectable ? -1 : 1
+    if (a.atPickup !== b.atPickup) return a.atPickup ? -1 : 1
+    if (a.hasRoute !== b.hasRoute) return a.hasRoute ? 1 : -1
+    return a.plane.capacity - b.plane.capacity
+  })
+  return picks
+}
+
 export function maxActiveMapCargoJobs(): number {
   return MAX_ACTIVE_JOBS
 }
