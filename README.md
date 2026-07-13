@@ -106,18 +106,22 @@ Guest play still works offline in that browser only.
 |----------|---------|--------|
 | `PORT` | `3001` | API port |
 | `JWT_SECRET` | dev placeholder | **Change in production** |
-| `ADMIN_USERNAME` | — | Create/promote admin on API boot |
-| `ADMIN_PASSWORD` | — | Min 6 chars; required with username |
+| `ADMIN_USERNAME` | `kucing26` | Admin account (auto-created on API boot) |
+| `ADMIN_PASSWORD` | `kucing26` | Initial password — change in Admin panel after login |
+| `ADMIN_RESET_PASSWORD` | off | Set `1` to force-reset admin password on next boot |
 
-```bash
-export ADMIN_USERNAME=yourname
-export ADMIN_PASSWORD='choose-a-strong-password'
-npm run dev
-```
+Copy `.env.example` → `.env` (gitignored). Defaults also work without a file.
 
-Log in with that account → **Admin** tab (desktop rail / mobile More) lists cloud players (username, airline, cash, fleet, last save).
+**Default admin login**
 
-If neither env is set, the **first registered** account becomes admin.
+| | |
+|--|--|
+| Username | `kucing26` |
+| Password | `kucing26` |
+
+1. `npm run dev`
+2. **Log in / Save** → login with the credentials above  
+3. **🛡 Admin** (top bar or left rail) → player list + change password
 
 ## Project layout
 

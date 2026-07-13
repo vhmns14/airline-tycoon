@@ -2,12 +2,13 @@
  * Airline Tycoon API — auth + cloud game saves (SQLite) + admin players list.
  *
  * Run: npx tsx --experimental-sqlite server/index.ts
- * Env: PORT (default 3001), JWT_SECRET, ADMIN_USERNAME, ADMIN_PASSWORD
+ * Env: PORT, JWT_SECRET, ADMIN_USERNAME, ADMIN_PASSWORD (see .env)
  */
 
 import cors from 'cors'
 import express from 'express'
 import { randomUUID } from 'node:crypto'
+import { loadEnvFile } from './loadEnv.ts'
 import {
   createUser,
   deleteSave,
@@ -31,7 +32,14 @@ import {
   verifyToken,
 } from './auth.ts'
 
+// Load project .env before reading ADMIN_* (does not override real env)
+loadEnvFile()
+
 const PORT = Number(process.env.PORT ?? 3001)
+/** Defaults so `npm run dev` always has a working admin without manual export. */
+const DEFAULT_ADMIN_USER = 'kucing26'
+const DEFAULT_ADMIN_PASS = 'kucing26'
+
 const app = express()
 
 app.use(cors({ origin: true, credentials: true }))
@@ -55,32 +63,46 @@ function publicUser(user: {
   }
 }
 
-/** Ensure env admin account exists (or promote + refresh password). */
+/**
+ * Ensure admin account exists.
+ * - Creates if missing (password from env / defaults)
+ * - If already exists: only promote is_admin (does NOT overwrite password,
+ *   so change-password in UI survives restarts). Set ADMIN_RESET_PASSWORD=1
+ *   to force password back to ADMIN_PASSWORD on boot.
+ */
 async function bootstrapAdmin(): Promise<void> {
-  const username = process.env.ADMIN_USERNAME?.trim()
-  const password = process.env.ADMIN_PASSWORD
-  if (!username || !password) {
-    console.log(
-      'Admin: set ADMIN_USERNAME + ADMIN_PASSWORD to create/promote admin account',
-    )
-    return
-  }
+  const username =
+    process.env.ADMIN_USERNAME?.trim() || DEFAULT_ADMIN_USER
+  const password = process.env.ADMIN_PASSWORD || DEFAULT_ADMIN_PASS
+  const forceReset =
+    process.env.ADMIN_RESET_PASSWORD === '1' ||
+    process.env.ADMIN_RESET_PASSWORD === 'true'
+
   if (password.length < 6) {
-    console.warn('Admin: ADMIN_PASSWORD must be at least 6 characters — skipped')
+    console.warn('Admin: password must be at least 6 characters — skipped')
     return
   }
+
   const existing = findUserByUsername(username)
   if (existing) {
-    setUserAdmin(existing.id, true)
-    const hash = await hashPassword(password)
-    setUserPasswordHash(existing.id, hash)
-    console.log(`Admin: promoted @${existing.username}`)
+    if (!isUserAdmin(existing)) {
+      setUserAdmin(existing.id, true)
+      console.log(`Admin: promoted @${existing.username}`)
+    } else {
+      console.log(`Admin: ready @${existing.username}`)
+    }
+    if (forceReset) {
+      const hash = await hashPassword(password)
+      setUserPasswordHash(existing.id, hash)
+      console.log(`Admin: password reset for @${existing.username}`)
+    }
     return
   }
+
   const id = randomUUID()
   const hash = await hashPassword(password)
   createUser(id, username, hash, true)
-  console.log(`Admin: created @${username}`)
+  console.log(`Admin: created @${username} (change password after login)`)
 }
 
 async function requireAuth(
@@ -139,9 +161,8 @@ app.post('/api/auth/register', async (req, res) => {
   }
   const id = randomUUID()
   const passwordHash = await hashPassword(password)
-  // First-ever account becomes admin if no env admin configured
-  const adminUser = process.env.ADMIN_USERNAME?.trim()
-  const makeAdmin = !adminUser && countUsers() === 0
+  // First-ever account becomes admin only if no admin seed account exists yet
+  const makeAdmin = countUsers() === 0
   const user = createUser(id, username, passwordHash, makeAdmin)
   const token = await signToken({ sub: user.id, username: user.username })
   res.status(201).json({
@@ -176,6 +197,31 @@ app.get('/api/auth/me', requireAuth, (req: AuthedRequest, res) => {
     return
   }
   res.json({ user: publicUser(user) })
+})
+
+/** Change password for the logged-in account (keeps admin flag). */
+app.post('/api/auth/password', requireAuth, async (req: AuthedRequest, res) => {
+  const { currentPassword, newPassword } = req.body ?? {}
+  if (typeof currentPassword !== 'string' || typeof newPassword !== 'string') {
+    res.status(400).json({ error: 'currentPassword and newPassword required.' })
+    return
+  }
+  if (newPassword.length < 6 || newPassword.length > 72) {
+    res.status(400).json({ error: 'New password must be 6–72 characters.' })
+    return
+  }
+  const user = findUserById(req.userId!)
+  if (!user) {
+    res.status(401).json({ error: 'Account not found.' })
+    return
+  }
+  if (!(await verifyPassword(currentPassword, user.password_hash))) {
+    res.status(401).json({ error: 'Current password is wrong.' })
+    return
+  }
+  const hash = await hashPassword(newPassword)
+  setUserPasswordHash(user.id, hash)
+  res.json({ ok: true })
 })
 
 app.get('/api/save', requireAuth, (req: AuthedRequest, res) => {

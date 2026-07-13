@@ -6,6 +6,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { formatMoney } from '../../lib/format'
 import {
   apiAdminPlayers,
+  apiChangePassword,
   type AdminPlayer,
 } from '../../lib/api'
 import { useAuthStore } from '../../store/authStore'
@@ -39,6 +40,10 @@ export function AdminPanel() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [q, setQ] = useState('')
+  const [curPw, setCurPw] = useState('')
+  const [newPw, setNewPw] = useState('')
+  const [pwMsg, setPwMsg] = useState<string | null>(null)
+  const [pwBusy, setPwBusy] = useState(false)
 
   const load = useCallback(async () => {
     if (!token) {
@@ -112,6 +117,73 @@ export function AdminPanel() {
           label="Admins"
           value={String(players.filter((p) => p.isAdmin).length)}
         />
+      </div>
+
+      <div className="game-panel">
+        <div className="game-panel-header">
+          <h3 className="game-panel-title">Change password</h3>
+        </div>
+        <div className="game-panel-body">
+          <form
+            className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-end"
+            onSubmit={async (e) => {
+              e.preventDefault()
+              if (!token) return
+              setPwBusy(true)
+              setPwMsg(null)
+              try {
+                await apiChangePassword(token, curPw, newPw)
+                setPwMsg('Password updated. Use the new one next login.')
+                setCurPw('')
+                setNewPw('')
+              } catch (err) {
+                setPwMsg(
+                  err instanceof Error ? err.message : 'Failed to change password',
+                )
+              } finally {
+                setPwBusy(false)
+              }
+            }}
+          >
+            <label className="min-w-[10rem] flex-1">
+              <span className="text-[10px] font-semibold uppercase tracking-wider text-[var(--game-dim)]">
+                Current
+              </span>
+              <input
+                type="password"
+                className="game-input mt-0.5 w-full !py-1.5"
+                value={curPw}
+                onChange={(e) => setCurPw(e.target.value)}
+                autoComplete="current-password"
+                required
+              />
+            </label>
+            <label className="min-w-[10rem] flex-1">
+              <span className="text-[10px] font-semibold uppercase tracking-wider text-[var(--game-dim)]">
+                New (min 6)
+              </span>
+              <input
+                type="password"
+                className="game-input mt-0.5 w-full !py-1.5"
+                value={newPw}
+                onChange={(e) => setNewPw(e.target.value)}
+                autoComplete="new-password"
+                minLength={6}
+                required
+              />
+            </label>
+            <button
+              type="submit"
+              className="btn-game btn-game-primary !min-h-[2.5rem] !text-xs"
+              disabled={pwBusy}
+            >
+              {pwBusy ? 'Saving…' : 'Update password'}
+            </button>
+          </form>
+          {pwMsg && (
+            <p className="mt-2 text-xs text-[var(--game-olive)]">{pwMsg}</p>
+          )}
+        </div>
       </div>
 
       <div className="game-panel">

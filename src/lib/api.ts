@@ -92,6 +92,18 @@ export function apiMe(token: string): Promise<{ user: AuthUser }> {
   return request('/api/auth/me', { token })
 }
 
+export function apiChangePassword(
+  token: string,
+  currentPassword: string,
+  newPassword: string,
+): Promise<{ ok: boolean }> {
+  return request('/api/auth/password', {
+    method: 'POST',
+    token,
+    body: JSON.stringify({ currentPassword, newPassword }),
+  })
+}
+
 export function apiGetSave(
   token: string,
 ): Promise<{ save: CloudSave | null }> {

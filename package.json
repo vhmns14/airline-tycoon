@@ -6,11 +6,11 @@
   "scripts": {
     "dev": "concurrently -n api,web -c cyan,magenta \"npm run dev:server\" \"npm run dev:client\"",
     "dev:client": "vite",
-    "dev:server": "tsx --experimental-sqlite server/index.ts",
+    "dev:server": "tsx --env-file-if-exists=.env --experimental-sqlite server/index.ts",
     "build": "tsc -b && vite build",
     "lint": "oxlint",
     "preview": "vite preview",
-    "start:server": "tsx --experimental-sqlite server/index.ts",
+    "start:server": "tsx --env-file-if-exists=.env --experimental-sqlite server/index.ts",
     "screenshots": "node scripts/capture-screenshots.mjs"
   },
   "dependencies": {
