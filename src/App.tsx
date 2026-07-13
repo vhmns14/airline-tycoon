@@ -84,7 +84,7 @@ export default function App() {
         } as React.CSSProperties
       }
     >
-      <TopBar />
+      <TopBar onOpenAdmin={() => setTab('admin')} />
 
       {user && syncMessage && (
         <div

@@ -6,7 +6,12 @@ import { useState } from 'react'
 import { useAuthStore } from '../../store/authStore'
 import { AuthModal } from './AuthModal'
 
-export function AccountMenu() {
+type AccountMenuProps = {
+  /** Jump to Admin tab (only used when user.isAdmin). */
+  onOpenAdmin?: () => void
+}
+
+export function AccountMenu({ onOpenAdmin }: AccountMenuProps) {
   const user = useAuthStore((s) => s.user)
   const logout = useAuthStore((s) => s.logout)
   const syncStatus = useAuthStore((s) => s.syncStatus)
@@ -48,6 +53,16 @@ export function AccountMenu() {
                 </span>
               ) : null}
             </span>
+            {user.isAdmin && onOpenAdmin && (
+              <button
+                type="button"
+                onClick={onOpenAdmin}
+                title="Admin — who is playing"
+                className="rounded-lg border border-[rgba(196,163,90,0.45)] bg-[rgba(196,163,90,0.12)] px-2 py-1.5 text-xs font-semibold text-[var(--game-brass)] hover:bg-[rgba(196,163,90,0.22)]"
+              >
+                🛡 Admin
+              </button>
+            )}
             <button
               type="button"
               onClick={() => {

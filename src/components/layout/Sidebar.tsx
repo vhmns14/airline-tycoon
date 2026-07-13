@@ -1,6 +1,7 @@
 /**
  * Game-style icon navigation — rail on desktop, bottom dock on mobile.
  * Mobile: 5 primary tabs + “More” sheet for the rest.
+ * Admin is pinned (not buried under scroll).
  */
 
 import { useEffect, useState } from 'react'
@@ -18,7 +19,7 @@ export type AppTab =
   | 'finance'
   | 'admin'
 
-const ALL_TABS: { id: AppTab; label: string; short: string; icon: string }[] = [
+const MAIN_TABS: { id: AppTab; label: string; short: string; icon: string }[] = [
   { id: 'dashboard', label: 'Ops', short: 'Ops', icon: '📡' },
   { id: 'map', label: 'Map', short: 'Map', icon: '🌍' },
   { id: 'hub', label: 'Hub', short: 'Hub', icon: '🏢' },
@@ -29,8 +30,14 @@ const ALL_TABS: { id: AppTab; label: string; short: string; icon: string }[] = [
   { id: 'company', label: 'Airline', short: 'Co', icon: '💼' },
   { id: 'bank', label: 'Bank', short: 'Bank', icon: '🏦' },
   { id: 'finance', label: 'Books', short: '$$$', icon: '📊' },
-  { id: 'admin', label: 'Admin', short: 'Adm', icon: '🛡' },
 ]
+
+const ADMIN_TAB = {
+  id: 'admin' as const,
+  label: 'Admin',
+  short: 'Adm',
+  icon: '🛡',
+}
 
 /** Always on the mobile dock (order matters). */
 const MOBILE_PRIMARY: AppTab[] = [
@@ -62,15 +69,12 @@ export function Sidebar({
   showAdmin = false,
 }: SidebarProps) {
   const [moreOpen, setMoreOpen] = useState(false)
-  const TABS = showAdmin
-    ? ALL_TABS
-    : ALL_TABS.filter((t) => t.id !== 'admin')
+  // Admin first in More so it is not buried
   const MOBILE_MORE = showAdmin
-    ? [...MOBILE_MORE_BASE, 'admin' as AppTab]
+    ? (['admin', ...MOBILE_MORE_BASE] as AppTab[])
     : MOBILE_MORE_BASE
   const moreActive = MOBILE_MORE.includes(activeTab)
 
-  // Close sheet when leaving a "more" tab for a primary one
   useEffect(() => {
     if (!moreActive) setMoreOpen(false)
   }, [activeTab, moreActive])
@@ -80,38 +84,64 @@ export function Sidebar({
     setMoreOpen(false)
   }
 
+  function tabMeta(id: AppTab) {
+    if (id === 'admin') return ADMIN_TAB
+    return MAIN_TABS.find((t) => t.id === id)!
+  }
+
   return (
     <>
-      {/* Desktop left rail */}
+      {/* Desktop left rail — main scroll + admin pinned on top */}
       <nav
-        className="game-nav hidden w-[4.75rem] flex-col gap-1 overflow-y-auto border-r p-1.5 py-2 sm:flex"
+        className="game-nav relative z-20 hidden w-[4.75rem] shrink-0 flex-col border-r sm:flex"
         aria-label="Main"
       >
-        {TABS.map((tab) => {
-          const active = tab.id === activeTab
-          return (
+        {showAdmin && (
+          <div className="shrink-0 border-b border-[rgba(196,163,90,0.25)] p-1.5 pt-2">
             <button
-              key={tab.id}
               type="button"
-              onClick={() => onChange(tab.id)}
-              title={tab.label}
+              onClick={() => onChange('admin')}
+              title="Admin — players"
               className={[
                 'game-nav-btn w-full',
-                active ? 'game-nav-btn-active' : '',
+                activeTab === 'admin' ? 'game-nav-btn-active' : '',
+                'ring-1 ring-[rgba(196,163,90,0.2)]',
               ].join(' ')}
             >
               <span className="game-nav-icon" aria-hidden>
-                {tab.icon}
+                {ADMIN_TAB.icon}
               </span>
-              <span className="game-nav-label">{tab.label}</span>
+              <span className="game-nav-label">{ADMIN_TAB.label}</span>
             </button>
-          )
-        })}
+          </div>
+        )}
+        <div className="flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto p-1.5 py-2">
+          {MAIN_TABS.map((tab) => {
+            const active = tab.id === activeTab
+            return (
+              <button
+                key={tab.id}
+                type="button"
+                onClick={() => onChange(tab.id)}
+                title={tab.label}
+                className={[
+                  'game-nav-btn w-full',
+                  active ? 'game-nav-btn-active' : '',
+                ].join(' ')}
+              >
+                <span className="game-nav-icon" aria-hidden>
+                  {tab.icon}
+                </span>
+                <span className="game-nav-label">{tab.label}</span>
+              </button>
+            )
+          })}
+        </div>
       </nav>
 
       {/* Mobile “More” sheet */}
       {moreOpen && (
-        <div className="fixed inset-0 z-50 sm:hidden" role="dialog" aria-modal>
+        <div className="fixed inset-0 z-[60] sm:hidden" role="dialog" aria-modal>
           <button
             type="button"
             className="absolute inset-0 bg-black/55"
@@ -119,7 +149,7 @@ export function Sidebar({
             onClick={() => setMoreOpen(false)}
           />
           <div
-            className="absolute inset-x-0 bottom-0 rounded-t-2xl border-t border-[rgba(196,163,90,0.25)] bg-[#1a1714] px-3 pb-4 pt-2 shadow-2xl"
+            className="absolute inset-x-0 bottom-0 z-[61] rounded-t-2xl border-t border-[rgba(196,163,90,0.25)] bg-[#1a1714] px-3 pb-4 pt-2 shadow-2xl"
             style={{
               paddingBottom: 'max(1rem, env(safe-area-inset-bottom))',
             }}
@@ -130,8 +160,9 @@ export function Sidebar({
             </p>
             <div className="grid grid-cols-3 gap-2">
               {MOBILE_MORE.map((id) => {
-                const tab = TABS.find((t) => t.id === id)!
+                const tab = tabMeta(id)
                 const active = tab.id === activeTab
+                const isAdminBtn = tab.id === 'admin'
                 return (
                   <button
                     key={tab.id}
@@ -141,7 +172,9 @@ export function Sidebar({
                       'flex min-h-[4.25rem] flex-col items-center justify-center gap-1 rounded-xl border px-2 py-2 transition',
                       active
                         ? 'border-[rgba(196,163,90,0.5)] bg-[rgba(196,163,90,0.14)] text-[var(--game-brass-hi)]'
-                        : 'border-[rgba(160,145,120,0.15)] bg-black/20 text-[var(--game-muted)]',
+                        : isAdminBtn
+                          ? 'border-[rgba(196,163,90,0.35)] bg-[rgba(196,163,90,0.08)] text-[var(--game-brass)]'
+                          : 'border-[rgba(160,145,120,0.15)] bg-black/20 text-[var(--game-muted)]',
                     ].join(' ')}
                   >
                     <span className="text-2xl" aria-hidden>
@@ -169,7 +202,7 @@ export function Sidebar({
         aria-label="Main mobile"
       >
         {MOBILE_PRIMARY.map((id) => {
-          const tab = TABS.find((t) => t.id === id)!
+          const tab = tabMeta(id)
           const active = tab.id === activeTab
           return (
             <button
@@ -200,13 +233,11 @@ export function Sidebar({
         >
           <span className="game-nav-icon text-lg" aria-hidden>
             {moreActive
-              ? TABS.find((t) => t.id === activeTab)?.icon ?? '···'
+              ? tabMeta(activeTab).icon
               : '···'}
           </span>
           <span className="game-nav-label !text-[10px]">
-            {moreActive
-              ? TABS.find((t) => t.id === activeTab)?.short ?? 'More'
-              : 'More'}
+            {moreActive ? tabMeta(activeTab).short : 'More'}
           </span>
         </button>
       </nav>

@@ -8,7 +8,11 @@ import { formatLocalTime } from '../../lib/time'
 import { useGameStore } from '../../store/gameStore'
 import { AccountMenu } from '../auth/AccountMenu'
 
-export function TopBar() {
+type TopBarProps = {
+  onOpenAdmin?: () => void
+}
+
+export function TopBar({ onOpenAdmin }: TopBarProps) {
   const branding = useGameStore((s) => s.branding)
   const cash = useGameStore((s) => s.cash)
   const fuelStock = useGameStore((s) => s.fuelStock)
@@ -149,7 +153,7 @@ export function TopBar() {
             >
               {soundEnabled ? '🔊' : '🔇'}
             </button>
-            <AccountMenu />
+            <AccountMenu onOpenAdmin={onOpenAdmin} />
             <button
               type="button"
               onClick={handleNewGame}
