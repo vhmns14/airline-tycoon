@@ -25,7 +25,9 @@ import { playSfx } from '../sim/sound'
 import {
   DEFAULT_FUEL_CAPACITY,
   FUEL_PRICE_UPDATE_MS,
+  fuelTankUpgradeCost,
   initialFuelPrice,
+  nextFuelCapacity,
   rollFuelPrice,
 } from '../sim/fuel'
 import {
@@ -180,6 +182,8 @@ type GameActions = {
   promoteBaseToHub: (airportId: string) => boolean
   buildHubFacility: (airportId: string, facility: HubFacilityId) => boolean
   expandHangar: () => boolean
+  /** Expand shared fuel farm capacity (one step). */
+  expandFuelTank: () => boolean
   runMarketing: (level: 1 | 2 | 3) => boolean
   setInsurance: (on: boolean) => boolean
   claimInsurance: (claimId: string) => boolean
@@ -1559,6 +1563,34 @@ export const useGameStore = create<GameStore>()(
             s.notifications,
             'good',
             `Hangar expanded → ${slots + 2} slots`,
+          ),
+        }))
+        return true
+      },
+
+      expandFuelTank: () => {
+        if (get().gameOver || !get().setupComplete) return false
+        const cap = get().fuelCapacity
+        const next = nextFuelCapacity(cap)
+        if (next == null) return false
+        const cost = fuelTankUpgradeCost(cap)
+        if (get().cash < cost) return false
+        const now = Date.now()
+        const added = next - cap
+        set((s) => ({
+          cash: s.cash - cost,
+          todayCosts: s.todayCosts + cost,
+          fuelCapacity: next,
+          financeLog: pushLog(s.financeLog, {
+            at: now,
+            kind: 'fuel',
+            label: `Fuel tank upgrade (+${Math.round(added).toLocaleString()} L)`,
+            amount: -cost,
+          }),
+          notifications: pushNote(
+            s.notifications,
+            'good',
+            `⛽ Tank expanded → ${Math.round(next).toLocaleString()} L capacity`,
           ),
         }))
         return true

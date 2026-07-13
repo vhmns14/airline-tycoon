@@ -14,8 +14,41 @@ import type { OwnedAircraft } from '../types'
 /** Default shared fuel farm capacity (liters). */
 export const DEFAULT_FUEL_CAPACITY = 50_000
 
+/** Each tank upgrade adds this many liters of storage. */
+export const FUEL_TANK_STEP_L = 25_000
+
+/** Soft cap so late-game doesn't balloon forever. */
+export const FUEL_TANK_MAX_L = 500_000
+
 /** Starting stock so the first short legs are possible. */
 export const DEFAULT_FUEL_STOCK = 10_000
+
+/**
+ * Cash cost to expand the shared farm by one step.
+ * Scales with how many upgrades you've already bought.
+ */
+export function fuelTankUpgradeCost(currentCapacity: number): number {
+  const level = Math.max(
+    0,
+    Math.round((currentCapacity - DEFAULT_FUEL_CAPACITY) / FUEL_TANK_STEP_L),
+  )
+  // L0 → $40k · L1 → $93k · L4 → ~$300k · L10 → ~$1.1M
+  return Math.round(40_000 + level * 45_000 + level * level * 12_000)
+}
+
+/** Next capacity after one upgrade, or null if at max. */
+export function nextFuelCapacity(currentCapacity: number): number | null {
+  if (currentCapacity >= FUEL_TANK_MAX_L) return null
+  return Math.min(FUEL_TANK_MAX_L, currentCapacity + FUEL_TANK_STEP_L)
+}
+
+/** Upgrade level index (0 = starter tank). */
+export function fuelTankLevel(currentCapacity: number): number {
+  return Math.max(
+    0,
+    Math.round((currentCapacity - DEFAULT_FUEL_CAPACITY) / FUEL_TANK_STEP_L),
+  )
+}
 
 /** Market price bounds ($ / liter). */
 export const FUEL_PRICE_MIN = 0.5

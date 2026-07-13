@@ -7,7 +7,12 @@ import { formatMoney, formatNumber } from '../../lib/format'
 import {
   FUEL_PRICE_MAX,
   FUEL_PRICE_MIN,
+  FUEL_TANK_MAX_L,
+  FUEL_TANK_STEP_L,
+  fuelTankLevel,
+  fuelTankUpgradeCost,
   fuelUpliftForDispatch,
+  nextFuelCapacity,
 } from '../../sim/fuel'
 import { useGameStore } from '../../store/gameStore'
 import { EmptyState } from '../ui/EmptyState'
@@ -27,12 +32,18 @@ export function FuelPanel() {
   const routes = useGameStore((s) => s.routes)
   const ownedAircraft = useGameStore((s) => s.ownedAircraft)
   const buyFuel = useGameStore((s) => s.buyFuel)
+  const expandFuelTank = useGameStore((s) => s.expandFuelTank)
 
   const [customLiters, setCustomLiters] = useState('5000')
   const [msg, setMsg] = useState<string | null>(null)
 
   const free = Math.max(0, fuelCapacity - fuelStock)
   const fillPct = fuelCapacity > 0 ? (fuelStock / fuelCapacity) * 100 : 0
+  const tankLevel = fuelTankLevel(fuelCapacity)
+  const nextCap = nextFuelCapacity(fuelCapacity)
+  const upgradeCost = fuelTankUpgradeCost(fuelCapacity)
+  const canUpgrade =
+    !gameOver && nextCap != null && cash >= upgradeCost
 
   const groundedNoFuel = useMemo(() => {
     return ownedAircraft.filter((p) => {
@@ -229,6 +240,76 @@ export function FuelPanel() {
             {msg}
           </p>
         )}
+      </GamePanel>
+
+      <GamePanel
+        title="Upgrade tank"
+        icon="🛢️"
+        className="col-span-2 lg:col-span-12"
+      >
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="min-w-0">
+            <p className="text-sm text-[var(--game-text)]">
+              Farm level{' '}
+              <span className="font-display font-semibold text-[var(--game-brass)]">
+                {tankLevel}
+              </span>
+              {' · '}
+              {formatNumber(fuelCapacity)} L capacity
+              {nextCap != null ? (
+                <span className="text-[var(--game-muted)]">
+                  {' '}
+                  → {formatNumber(nextCap)} L (+
+                  {formatNumber(FUEL_TANK_STEP_L)} L)
+                </span>
+              ) : (
+                <span className="text-[var(--game-olive)]"> · maxed</span>
+              )}
+            </p>
+            <p className="mt-1 text-xs text-[var(--game-dim)]">
+              Bigger tank = more bulk buys before top-off. Cap max{' '}
+              {formatNumber(FUEL_TANK_MAX_L)} L.
+            </p>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            {nextCap != null && (
+              <span className="font-display text-sm tabular-nums text-[var(--game-brass)]">
+                {formatMoney(upgradeCost)}
+              </span>
+            )}
+            <button
+              type="button"
+              disabled={!canUpgrade}
+              title={
+                nextCap == null
+                  ? 'Already at max capacity'
+                  : cash < upgradeCost
+                    ? 'Not enough cash'
+                    : `Expand to ${formatNumber(nextCap)} L`
+              }
+              onClick={() => {
+                setMsg(null)
+                const ok = expandFuelTank()
+                if (!ok) {
+                  setMsg(
+                    nextCap == null
+                      ? 'Tank already at max capacity.'
+                      : cash < upgradeCost
+                        ? 'Cash tidak cukup untuk upgrade tanki.'
+                        : 'Upgrade gagal.',
+                  )
+                  return
+                }
+                setMsg(
+                  `Tanki di-upgrade → ${formatNumber(nextCap!)} L (−${formatMoney(upgradeCost)})`,
+                )
+              }}
+              className="btn-game btn-game-primary !min-h-[2.5rem]"
+            >
+              {nextCap == null ? 'Max capacity' : 'Upgrade tank +25k L'}
+            </button>
+          </div>
+        </div>
       </GamePanel>
 
       {ownedAircraft.length === 0 && (
