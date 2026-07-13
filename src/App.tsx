@@ -63,21 +63,23 @@ export default function App() {
   if (!setupComplete) {
     return (
       <div
-        className="game-shell min-h-screen text-slate-100"
+        className="game-shell text-slate-100"
         style={
           {
             ['--accent' as string]: accent,
           } as React.CSSProperties
         }
       >
-        <SetupModal />
+        <div className="main-scroll min-h-0 flex-1">
+          <SetupModal />
+        </div>
       </div>
     )
   }
 
   return (
     <div
-      className="game-shell flex min-h-screen flex-col text-slate-100"
+      className="game-shell text-slate-100"
       style={
         {
           ['--accent' as string]: accent,
@@ -89,7 +91,7 @@ export default function App() {
       {user && syncMessage && (
         <div
           className={[
-            'border-b px-3 py-1 text-center text-[10px] font-semibold uppercase tracking-wider',
+            'shrink-0 border-b px-3 py-1 text-center text-[10px] font-semibold uppercase tracking-wider',
             syncStatus === 'error'
               ? 'border-red-500/30 bg-red-950/60 text-red-200'
               : syncStatus === 'saving' || syncStatus === 'loading'
@@ -102,7 +104,7 @@ export default function App() {
       )}
 
       {activeEvent && activeEvent.endsAt > Date.now() && (
-        <div className="relative overflow-hidden border-b border-amber-400/30 bg-gradient-to-r from-amber-950/80 via-orange-950/50 to-amber-950/80 px-3 py-1.5 text-center">
+        <div className="relative shrink-0 overflow-hidden border-b border-amber-400/30 bg-gradient-to-r from-amber-950/80 via-orange-950/50 to-amber-950/80 px-3 py-1.5 text-center">
           <div className="pointer-events-none absolute inset-0 animate-pulse bg-amber-400/5" />
           <p className="relative text-[11px] font-semibold text-amber-100">
             <span className="mr-1.5 inline-block animate-bounce">⚠️</span>
@@ -115,9 +117,9 @@ export default function App() {
         </div>
       )}
 
-      <div className="flex min-h-0 flex-1 flex-col sm:flex-row">
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col sm:flex-row">
         <Sidebar activeTab={tab} onChange={setTab} showAdmin={isAdmin} />
-        <main className="main-scroll min-h-0 flex-1 overflow-auto p-2 pb-[calc(4.75rem+env(safe-area-inset-bottom))] sm:p-3 sm:pb-4 lg:p-4">
+        <main className="main-scroll p-2 sm:p-3 sm:pb-4 lg:p-4">
           <div key={tab} className="mx-auto w-full max-w-[1600px] animate-fade-in">
             {tab === 'dashboard' && <Dashboard />}
             {tab === 'map' && <MapPanel />}

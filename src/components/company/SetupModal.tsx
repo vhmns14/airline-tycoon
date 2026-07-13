@@ -33,7 +33,7 @@ export function SetupModal() {
   }
 
   return (
-    <div className="relative flex min-h-screen w-full items-start justify-center overflow-auto px-3 py-6 sm:items-center sm:px-6 sm:py-8">
+    <div className="relative flex min-h-full w-full items-start justify-center px-3 py-6 sm:items-center sm:px-6 sm:py-8">
       {/* Full-viewport hangar backdrop */}
       <div className="pointer-events-none fixed inset-0 bg-[#12100e]" />
       <div className="pointer-events-none fixed inset-0 bg-[radial-gradient(ellipse_at_50%_20%,rgba(90,70,40,0.22),transparent_55%)]" />
