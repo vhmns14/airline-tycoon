@@ -9,7 +9,7 @@
 import cors from 'cors'
 import express from 'express'
 import { randomUUID } from 'node:crypto'
-import { loadEnvFile } from './loadEnv'
+import { loadEnvFile } from './loadEnv.ts'
 import {
   applyPendingCashGrants,
   createCashGrant,
@@ -26,14 +26,14 @@ import {
   topLeaderboard,
   upsertLeaderboard,
   upsertSave,
-} from './db'
+} from './db.ts'
 import {
   hashPassword,
   signToken,
   validateCredentials,
   verifyPassword,
   verifyToken,
-} from './auth'
+} from './auth.ts'
 
 // .env already loaded via loadEnv.ts import side-effect (and again here is fine)
 loadEnvFile()
@@ -72,7 +72,7 @@ function publicUser(user: {
   return {
     id: user.id,
     username: user.username,
-    isAdmin: isUserAdmin(user as import('./db').DbUser),
+    isAdmin: isUserAdmin(user as import('./db.ts').DbUser),
   }
 }
 

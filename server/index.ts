@@ -3,7 +3,7 @@
  * Run: npx tsx --env-file-if-exists=.env --experimental-sqlite server/index.ts
  */
 
-import { adminReady, app } from './app'
+import { adminReady, app } from './app.ts'
 
 const PORT = Number(process.env.PORT ?? 3001)
 
