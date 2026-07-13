@@ -141,7 +141,7 @@ app.post('/api/auth/register', async (req, res) => {
   const passwordHash = await hashPassword(password)
   // First-ever account becomes admin if no env admin configured
   const adminUser = process.env.ADMIN_USERNAME?.trim()
-  const makeAdmin = !adminUser && listPlayers().length === 0
+  const makeAdmin = !adminUser && countUsers() === 0
   const user = createUser(id, username, passwordHash, makeAdmin)
   const token = await signToken({ sub: user.id, username: user.username })
   res.status(201).json({
