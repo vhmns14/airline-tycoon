@@ -1,0 +1,536 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/*
+  Hangar / ops-room palette — warm, muted, less “neon AI dashboard”.
+  Brass · olive · warm charcoal instead of pure cyan glow.
+*/
+:root {
+  --game-bg: #161411;
+  --game-bg-mid: #1c1916;
+  --game-panel: #221f1b;
+  --game-panel-2: #2a2621;
+  --game-edge: rgba(196, 163, 90, 0.22);
+  --game-edge-soft: rgba(160, 145, 120, 0.18);
+  --game-text: #e8e2d6;
+  --game-muted: #9a9080;
+  --game-dim: #6b6358;
+  --game-brass: #c4a35a;
+  --game-brass-hi: #d4b86a;
+  --game-olive: #7a8f6a;
+  --game-cash: #8fad7a;
+  --game-fuel: #c4894a;
+  --game-warn: #c47a4a;
+  --game-danger: #b85c4a;
+  --game-accent: var(--accent, #c4a35a);
+  --game-ink: #0f0e0c;
+}
+
+html,
+body,
+#root {
+  min-height: 100%;
+}
+
+body {
+  margin: 0;
+  font-family: 'Barlow', 'Segoe UI', system-ui, sans-serif;
+  color: var(--game-text);
+  background: var(--game-bg);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ── Atmospheric shell (warm hangar, not cyber blue) ─── */
+.game-shell {
+  position: relative;
+  min-height: 100vh;
+  background:
+    radial-gradient(
+      ellipse 90% 50% at 50% -10%,
+      rgba(90, 70, 40, 0.18),
+      transparent 55%
+    ),
+    radial-gradient(
+      ellipse 40% 30% at 100% 100%,
+      rgba(60, 50, 35, 0.25),
+      transparent 50%
+    ),
+    linear-gradient(180deg, #12100e 0%, #1a1714 45%, #141210 100%);
+}
+
+.game-shell::before {
+  content: '';
+  pointer-events: none;
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  opacity: 0.035;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+
+.game-shell > * {
+  z-index: 1;
+}
+
+/* ── Typography ──────────────────────────────────────── */
+.font-display {
+  font-family: 'Barlow Condensed', 'Barlow', system-ui, sans-serif;
+  letter-spacing: 0.06em;
+  font-weight: 600;
+}
+
+.font-game {
+  font-family: 'Barlow', system-ui, sans-serif;
+}
+
+.screen-title {
+  @apply text-2xl font-semibold sm:text-3xl;
+  font-family: 'Barlow Condensed', 'Barlow', system-ui, sans-serif;
+  letter-spacing: 0.03em;
+  color: var(--game-text);
+  text-shadow: none;
+}
+
+.screen-sub {
+  @apply text-sm;
+  color: var(--game-muted);
+  font-family: 'Barlow', system-ui, sans-serif;
+}
+
+/* ── HUD resource chips ──────────────────────────────── */
+.hud-chip {
+  @apply relative flex items-center gap-1.5 rounded-md px-2 py-1;
+  background: var(--game-panel);
+  border: 1px solid var(--game-edge-soft);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.35);
+}
+
+.hud-chip-icon {
+  @apply flex h-6 w-6 shrink-0 items-center justify-center rounded text-sm;
+  background: rgba(0, 0, 0, 0.25);
+}
+
+.hud-chip-label {
+  @apply text-[11px] font-semibold uppercase tracking-[0.1em];
+  font-family: 'Barlow Condensed', sans-serif;
+  color: var(--game-dim);
+}
+
+.hud-chip-value {
+  @apply text-base font-semibold tabular-nums leading-tight;
+  font-family: 'Barlow Condensed', 'Barlow', sans-serif;
+  color: var(--game-text);
+}
+
+/* ── Game panel frame ────────────────────────────────── */
+.game-panel {
+  @apply relative overflow-hidden rounded-lg;
+  background: var(--game-panel);
+  border: 1px solid var(--game-edge-soft);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
+}
+
+.game-panel::after {
+  content: '';
+  pointer-events: none;
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.game-panel-header {
+  @apply flex items-center justify-between gap-2 border-b px-3 py-2;
+  border-color: var(--game-edge-soft);
+  background: rgba(0, 0, 0, 0.18);
+}
+
+.game-panel-title {
+  @apply text-xs font-semibold uppercase tracking-[0.12em] sm:text-sm;
+  font-family: 'Barlow Condensed', sans-serif;
+  color: var(--game-brass);
+}
+
+.game-panel-body {
+  @apply p-3;
+}
+
+/* ── Nav tabs ────────────────────────────────────────── */
+.game-nav {
+  background: #141210;
+  border-color: rgba(120, 105, 80, 0.2);
+  box-shadow: 1px 0 0 rgba(0, 0, 0, 0.4);
+}
+
+.game-nav-btn {
+  @apply relative flex flex-col items-center justify-center gap-0.5 rounded-md px-2 py-1.5 transition-colors duration-150;
+  min-width: 3.25rem;
+  color: var(--game-dim);
+}
+
+.game-nav-btn:hover {
+  color: var(--game-text);
+  background: rgba(196, 163, 90, 0.08);
+}
+
+.game-nav-btn-active {
+  color: var(--game-brass-hi) !important;
+  background: rgba(196, 163, 90, 0.12) !important;
+  box-shadow: inset 0 0 0 1px rgba(196, 163, 90, 0.35);
+}
+
+.game-nav-btn-active::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 22%;
+  bottom: 22%;
+  width: 2px;
+  border-radius: 0 1px 1px 0;
+  background: var(--game-brass);
+  box-shadow: none;
+}
+
+@media (max-width: 639px) {
+  .game-nav-btn-active::before {
+    left: 18%;
+    right: 18%;
+    top: auto;
+    bottom: 0;
+    width: auto;
+    height: 2px;
+    border-radius: 1px 1px 0 0;
+  }
+}
+
+.game-nav-icon {
+  @apply text-base leading-none sm:text-lg;
+}
+
+.game-nav-label {
+  @apply text-[10px] font-semibold uppercase tracking-wider sm:text-[11px];
+  font-family: 'Barlow Condensed', sans-serif;
+}
+
+/* ── Buttons ─────────────────────────────────────────── */
+.btn-game {
+  @apply inline-flex items-center justify-center gap-1 rounded-md px-3 py-2 text-sm font-semibold uppercase tracking-wide transition;
+  font-family: 'Barlow Condensed', 'Barlow', sans-serif;
+  letter-spacing: 0.05em;
+  border: 1px solid transparent;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
+}
+
+.btn-game:disabled {
+  @apply cursor-not-allowed opacity-40;
+  box-shadow: none;
+}
+
+.btn-game-primary {
+  background: #3d4f3a;
+  border-color: rgba(122, 143, 106, 0.45);
+  color: #e8e2d6;
+}
+
+.btn-game-primary:hover:not(:disabled) {
+  background: #4a5f46;
+  border-color: rgba(122, 143, 106, 0.65);
+  box-shadow: none;
+}
+
+.btn-game-success {
+  background: #4a5c3e;
+  border-color: rgba(143, 173, 122, 0.4);
+  color: #e8e2d6;
+}
+
+.btn-game-success:hover:not(:disabled) {
+  background: #5a6e4c;
+  box-shadow: none;
+}
+
+.btn-game-danger {
+  background: #6b3d34;
+  border-color: rgba(184, 92, 74, 0.4);
+  color: #f0e6e0;
+}
+
+.btn-game-ghost {
+  background: rgba(0, 0, 0, 0.25);
+  border-color: var(--game-edge-soft);
+  color: var(--game-muted);
+}
+
+.btn-game-ghost:hover:not(:disabled) {
+  border-color: rgba(196, 163, 90, 0.35);
+  color: var(--game-text);
+}
+
+/* ── Stat cards ──────────────────────────────────────── */
+.stat-card {
+  @apply relative overflow-hidden rounded-lg px-3 py-2.5;
+  background: var(--game-panel);
+  border: 1px solid var(--game-edge-soft);
+  box-shadow: none;
+}
+
+.stat-card::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 3px;
+  background: var(--card-accent, var(--game-brass));
+  box-shadow: none;
+  opacity: 0.85;
+}
+
+.stat-card-label {
+  @apply text-xs font-semibold uppercase tracking-[0.1em];
+  font-family: 'Barlow Condensed', sans-serif;
+  color: var(--game-dim);
+}
+
+.stat-card-value {
+  @apply mt-1 text-xl font-semibold tabular-nums leading-none sm:text-2xl;
+  font-family: 'Barlow Condensed', sans-serif;
+  color: var(--game-text);
+}
+
+/* ── Ops flight cards ────────────────────────────────── */
+.ops-card {
+  @apply flex flex-wrap items-center gap-2 rounded-lg px-3 py-2.5 transition;
+  background: var(--game-panel-2);
+  border: 1px solid var(--game-edge-soft);
+}
+
+.ops-card:hover {
+  border-color: rgba(196, 163, 90, 0.3);
+  box-shadow: none;
+}
+
+.ops-card-flying {
+  border-color: rgba(122, 143, 106, 0.4);
+  background: #252a22;
+}
+
+.ops-card-ready {
+  border-color: rgba(143, 173, 122, 0.4);
+}
+
+.flight-progress {
+  @apply h-1.5 overflow-hidden rounded-full;
+  background: rgba(0, 0, 0, 0.35);
+}
+
+.flight-progress > span {
+  @apply block h-full rounded-full;
+  background: var(--game-olive);
+  box-shadow: none;
+  transition: width 1s linear;
+}
+
+/* ── Toasts ──────────────────────────────────────────── */
+.game-toast {
+  @apply rounded-lg border px-3 py-2 text-left text-xs shadow-lg;
+  font-family: 'Barlow', system-ui, sans-serif;
+  animation: toast-in 0.22s ease-out;
+  background: #1e1b17;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.45);
+}
+
+@keyframes toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* ── Forms ───────────────────────────────────────────── */
+.game-input {
+  @apply w-full rounded-md border px-3 py-2 text-sm outline-none transition;
+  background: #141210;
+  border-color: var(--game-edge-soft);
+  color: var(--game-text);
+  font-family: 'Barlow', system-ui, sans-serif;
+}
+
+.game-input:focus {
+  border-color: rgba(196, 163, 90, 0.5);
+  box-shadow: 0 0 0 2px rgba(196, 163, 90, 0.12);
+}
+
+.game-table-wrap {
+  @apply overflow-x-auto rounded-lg;
+  border: 1px solid var(--game-edge-soft);
+  background: rgba(0, 0, 0, 0.2);
+}
+
+button,
+a,
+select,
+input {
+  @apply transition-colors duration-150;
+}
+
+select,
+input:not([type='color']):not([type='checkbox']):not([type='range']) {
+  font-family: 'Barlow', system-ui, sans-serif;
+}
+
+/* Soften common Tailwind sky/cyan used across panels */
+.game-shell .text-sky-300,
+.game-shell .text-sky-400,
+.game-shell .text-sky-200 {
+  color: var(--game-brass) !important;
+}
+
+.game-shell .text-emerald-400,
+.game-shell .text-emerald-300 {
+  color: var(--game-cash) !important;
+}
+
+.game-shell .text-amber-300,
+.game-shell .text-amber-400 {
+  color: var(--game-brass-hi) !important;
+}
+
+.game-shell .text-orange-300,
+.game-shell .text-orange-200 {
+  color: var(--game-fuel) !important;
+}
+
+.game-shell .text-violet-300 {
+  color: #a89880 !important;
+}
+
+.game-shell .border-sky-500\/20,
+.game-shell .border-sky-500\/15,
+.game-shell .border-sky-500\/30,
+.game-shell .border-sky-500\/40 {
+  border-color: var(--game-edge-soft) !important;
+}
+
+.game-shell .bg-sky-500\/10,
+.game-shell .bg-sky-500\/15,
+.game-shell .bg-sky-500\/20 {
+  background-color: rgba(196, 163, 90, 0.1) !important;
+}
+
+.game-shell .ring-sky-500\/40 {
+  --tw-ring-color: rgba(196, 163, 90, 0.35) !important;
+}
+
+.game-shell .text-slate-100,
+.game-shell .text-white {
+  color: var(--game-text);
+}
+
+.game-shell .text-slate-400 {
+  color: var(--game-muted) !important;
+}
+
+.game-shell .text-slate-500,
+.game-shell .text-slate-600 {
+  color: var(--game-dim) !important;
+}
+
+/* Compact mobile */
+@media (max-width: 640px) {
+  table {
+    font-size: 0.7rem;
+  }
+
+  .main-scroll {
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior-y: contain;
+  }
+
+  main > div {
+    max-width: 100%;
+  }
+
+  .game-nav-mobile .game-nav-btn {
+    min-height: 3.15rem;
+    min-width: 0;
+    flex: 1 1 0;
+  }
+
+  /* Bottom brass underline for active dock tab */
+  .game-nav-mobile .game-nav-btn-active::before {
+    left: 18%;
+    right: 18%;
+    top: auto;
+    bottom: 0;
+    width: auto;
+    height: 2.5px;
+    border-radius: 2px 2px 0 0;
+  }
+
+  .screen-title {
+    @apply text-xl;
+  }
+
+  .btn-game {
+    min-height: 2.5rem;
+  }
+
+  /* Avoid double-tap zoom on controls */
+  button,
+  .btn-game,
+  .game-nav-btn {
+    touch-action: manipulation;
+  }
+
+  .map-panel-frame {
+    min-height: min(48vh, 380px);
+  }
+}
+
+/* Safe area for notched phones when dock fixed */
+@supports (padding: env(safe-area-inset-bottom)) {
+  .game-nav-mobile {
+    padding-bottom: max(0.35rem, env(safe-area-inset-bottom));
+  }
+}
+
+@keyframes cabin-seat-pop {
+  0% {
+    transform: scale(0.2);
+    opacity: 0;
+  }
+  60% {
+    transform: scale(1.12);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+.cabin-seat-pop {
+  animation: cabin-seat-pop 0.3s ease-out both;
+}
+
+@keyframes ready-pulse {
+  0%,
+  100% {
+    border-color: rgba(143, 173, 122, 0.35);
+  }
+  50% {
+    border-color: rgba(143, 173, 122, 0.65);
+  }
+}
+
+.ready-pulse {
+  animation: ready-pulse 2.4s ease-in-out infinite;
+}
