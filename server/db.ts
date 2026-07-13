@@ -9,8 +9,19 @@ import { fileURLToPath } from 'node:url'
 import { DatabaseSync } from 'node:sqlite'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
-const dataDir = join(__dirname, 'data')
-const dbPath = join(dataDir, 'airline-tycoon.db')
+/**
+ * Local: server/data/
+ * Vercel: /tmp (ephemeral — cloud saves may reset on cold starts / new instances).
+ * For durable production cloud, move to Postgres/Turso later.
+ */
+const dataDir =
+  process.env.SQLITE_PATH
+    ? dirname(process.env.SQLITE_PATH)
+    : process.env.VERCEL
+      ? join('/tmp', 'airline-tycoon')
+      : join(__dirname, 'data')
+const dbPath =
+  process.env.SQLITE_PATH ?? join(dataDir, 'airline-tycoon.db')
 
 mkdirSync(dataDir, { recursive: true })
 

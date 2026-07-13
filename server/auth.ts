@@ -1,4 +1,4 @@
-import './loadEnv.ts'
+import './loadEnv'
 
 /**
  * Password hashing + JWT helpers.

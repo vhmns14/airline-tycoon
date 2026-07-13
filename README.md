@@ -52,6 +52,24 @@ npm run dev
 - **Web UI:** Vite URL (usually `http://localhost:5173`)
 - **API:** `http://localhost:3001` (proxied as `/api` in dev)
 
+## Deploy (Vercel)
+
+```bash
+npm i -g vercel
+vercel login
+vercel --prod
+```
+
+Set project env vars in Vercel (Production + Preview):
+
+| Name | Notes |
+|------|--------|
+| `JWT_SECRET` | Long random string (min 16) |
+| `ADMIN_USERNAME` | Optional admin seed |
+| `ADMIN_PASSWORD` | Optional, min 6 |
+
+**Caveat:** SQLite on Vercel lives under `/tmp` — cloud saves can reset on cold starts. Guest play (localStorage) is fine. For durable multiplayer cloud, migrate DB later (Turso/Postgres).
+
 ```bash
 npm run dev:server   # API only
 npm run dev:client   # Vite only
