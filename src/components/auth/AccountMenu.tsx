@@ -42,6 +42,11 @@ export function AccountMenu() {
               title={user.username}
             >
               @{user.username}
+              {user.isAdmin ? (
+                <span className="ml-1 text-[9px] font-bold uppercase text-[var(--game-brass)]">
+                  admin
+                </span>
+              ) : null}
             </span>
             <button
               type="button"

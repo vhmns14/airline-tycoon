@@ -24,7 +24,8 @@ db.exec(`
     id TEXT PRIMARY KEY NOT NULL,
     username TEXT NOT NULL UNIQUE COLLATE NOCASE,
     password_hash TEXT NOT NULL,
-    created_at INTEGER NOT NULL
+    created_at INTEGER NOT NULL,
+    is_admin INTEGER NOT NULL DEFAULT 0
   );
 
   CREATE TABLE IF NOT EXISTS game_saves (
@@ -45,6 +46,13 @@ db.exec(`
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
   );
 `)
+
+// Migrate older DBs that predate is_admin
+try {
+  db.exec(`ALTER TABLE users ADD COLUMN is_admin INTEGER NOT NULL DEFAULT 0`)
+} catch {
+  /* column already exists */
+}
 
 export type LbRow = {
   user_id: string
@@ -94,6 +102,22 @@ export type DbUser = {
   username: string
   password_hash: string
   created_at: number
+  is_admin: number
+}
+
+export type PlayerSummary = {
+  id: string
+  username: string
+  isAdmin: boolean
+  createdAt: number
+  saveUpdatedAt: number | null
+  airlineName: string | null
+  hubId: string | null
+  cash: number | null
+  reputation: number | null
+  fleet: number | null
+  routes: number | null
+  setupComplete: boolean | null
 }
 
 export type DbSave = {
@@ -102,39 +126,144 @@ export type DbSave = {
   updated_at: number
 }
 
+function mapUser(row: DbUser | undefined): DbUser | undefined {
+  if (!row) return undefined
+  return {
+    ...row,
+    is_admin: Number(row.is_admin) ? 1 : 0,
+  }
+}
+
 export function findUserByUsername(username: string): DbUser | undefined {
   const row = db
     .prepare(
-      'SELECT id, username, password_hash, created_at FROM users WHERE username = ? COLLATE NOCASE',
+      'SELECT id, username, password_hash, created_at, is_admin FROM users WHERE username = ? COLLATE NOCASE',
     )
     .get(username.trim()) as DbUser | undefined
-  return row
+  return mapUser(row)
 }
 
 export function findUserById(id: string): DbUser | undefined {
   const row = db
     .prepare(
-      'SELECT id, username, password_hash, created_at FROM users WHERE id = ?',
+      'SELECT id, username, password_hash, created_at, is_admin FROM users WHERE id = ?',
     )
     .get(id) as DbUser | undefined
-  return row
+  return mapUser(row)
 }
 
 export function createUser(
   id: string,
   username: string,
   passwordHash: string,
+  isAdmin = false,
 ): DbUser {
   const createdAt = Date.now()
   db.prepare(
-    'INSERT INTO users (id, username, password_hash, created_at) VALUES (?, ?, ?, ?)',
-  ).run(id, username.trim(), passwordHash, createdAt)
+    'INSERT INTO users (id, username, password_hash, created_at, is_admin) VALUES (?, ?, ?, ?, ?)',
+  ).run(id, username.trim(), passwordHash, createdAt, isAdmin ? 1 : 0)
   return {
     id,
     username: username.trim(),
     password_hash: passwordHash,
     created_at: createdAt,
+    is_admin: isAdmin ? 1 : 0,
   }
+}
+
+export function setUserAdmin(userId: string, isAdmin: boolean): void {
+  db.prepare('UPDATE users SET is_admin = ? WHERE id = ?').run(
+    isAdmin ? 1 : 0,
+    userId,
+  )
+}
+
+export function setUserPasswordHash(userId: string, passwordHash: string): void {
+  db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(
+    passwordHash,
+    userId,
+  )
+}
+
+export function isUserAdmin(user: DbUser | undefined | null): boolean {
+  return !!user && Number(user.is_admin) === 1
+}
+
+/** Lightweight player list for admin console (parses save JSON for stats). */
+export function listPlayers(): PlayerSummary[] {
+  const rows = db
+    .prepare(
+      `SELECT u.id, u.username, u.created_at, u.is_admin,
+              s.updated_at AS save_updated_at, s.state_json
+       FROM users u
+       LEFT JOIN game_saves s ON s.user_id = u.id
+       ORDER BY COALESCE(s.updated_at, 0) DESC, u.created_at DESC`,
+    )
+    .all() as Array<{
+    id: string
+    username: string
+    created_at: number
+    is_admin: number
+    save_updated_at: number | null
+    state_json: string | null
+  }>
+
+  return rows.map((r) => {
+    let airlineName: string | null = null
+    let hubId: string | null = null
+    let cash: number | null = null
+    let reputation: number | null = null
+    let fleet: number | null = null
+    let routes: number | null = null
+    let setupComplete: boolean | null = null
+
+    if (r.state_json) {
+      try {
+        const st = JSON.parse(r.state_json) as {
+          branding?: { name?: string }
+          hubId?: string | null
+          cash?: number
+          reputation?: number
+          ownedAircraft?: unknown[]
+          routes?: unknown[]
+          setupComplete?: boolean
+        }
+        airlineName = st.branding?.name?.trim() || null
+        hubId = st.hubId ?? null
+        cash = typeof st.cash === 'number' ? st.cash : null
+        reputation =
+          typeof st.reputation === 'number' ? st.reputation : null
+        fleet = Array.isArray(st.ownedAircraft) ? st.ownedAircraft.length : null
+        routes = Array.isArray(st.routes) ? st.routes.length : null
+        setupComplete =
+          typeof st.setupComplete === 'boolean' ? st.setupComplete : null
+      } catch {
+        /* corrupt save — leave nulls */
+      }
+    }
+
+    return {
+      id: r.id,
+      username: r.username,
+      isAdmin: Number(r.is_admin) === 1,
+      createdAt: r.created_at,
+      saveUpdatedAt: r.save_updated_at,
+      airlineName,
+      hubId,
+      cash,
+      reputation,
+      fleet,
+      routes,
+      setupComplete,
+    }
+  })
+}
+
+export function countUsers(): number {
+  const row = db.prepare('SELECT COUNT(*) AS n FROM users').get() as {
+    n: number
+  }
+  return Number(row?.n ?? 0)
 }
 
 export function getSave(userId: string): DbSave | undefined {

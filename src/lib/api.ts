@@ -9,6 +9,8 @@ const API_BASE = '' // same-origin / vite proxy
 export type AuthUser = {
   id: string
   username: string
+  /** Server-side admin flag (player list console). */
+  isAdmin?: boolean
 }
 
 export type AuthResponse = {
@@ -139,4 +141,31 @@ export function apiPostLeaderboard(
     token,
     body: JSON.stringify(stats),
   })
+}
+
+export type AdminPlayer = {
+  id: string
+  username: string
+  isAdmin: boolean
+  createdAt: number
+  saveUpdatedAt: number | null
+  airlineName: string | null
+  hubId: string | null
+  cash: number | null
+  reputation: number | null
+  fleet: number | null
+  routes: number | null
+  setupComplete: boolean | null
+}
+
+export type AdminPlayersResponse = {
+  players: AdminPlayer[]
+  total: number
+  withSave: number
+}
+
+export function apiAdminPlayers(
+  token: string,
+): Promise<AdminPlayersResponse> {
+  return request('/api/admin/players', { token })
 }

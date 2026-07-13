@@ -106,6 +106,18 @@ Guest play still works offline in that browser only.
 |----------|---------|--------|
 | `PORT` | `3001` | API port |
 | `JWT_SECRET` | dev placeholder | **Change in production** |
+| `ADMIN_USERNAME` | — | Create/promote admin on API boot |
+| `ADMIN_PASSWORD` | — | Min 6 chars; required with username |
+
+```bash
+export ADMIN_USERNAME=yourname
+export ADMIN_PASSWORD='choose-a-strong-password'
+npm run dev
+```
+
+Log in with that account → **Admin** tab (desktop rail / mobile More) lists cloud players (username, airline, cash, fleet, last save).
+
+If neither env is set, the **first registered** account becomes admin.
 
 ## Project layout
 

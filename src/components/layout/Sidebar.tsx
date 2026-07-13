@@ -16,8 +16,9 @@ export type AppTab =
   | 'company'
   | 'bank'
   | 'finance'
+  | 'admin'
 
-const TABS: { id: AppTab; label: string; short: string; icon: string }[] = [
+const ALL_TABS: { id: AppTab; label: string; short: string; icon: string }[] = [
   { id: 'dashboard', label: 'Ops', short: 'Ops', icon: '📡' },
   { id: 'map', label: 'Map', short: 'Map', icon: '🌍' },
   { id: 'hub', label: 'Hub', short: 'Hub', icon: '🏢' },
@@ -28,6 +29,7 @@ const TABS: { id: AppTab; label: string; short: string; icon: string }[] = [
   { id: 'company', label: 'Airline', short: 'Co', icon: '💼' },
   { id: 'bank', label: 'Bank', short: 'Bank', icon: '🏦' },
   { id: 'finance', label: 'Books', short: '$$$', icon: '📊' },
+  { id: 'admin', label: 'Admin', short: 'Adm', icon: '🛡' },
 ]
 
 /** Always on the mobile dock (order matters). */
@@ -39,7 +41,7 @@ const MOBILE_PRIMARY: AppTab[] = [
   'market',
 ]
 
-const MOBILE_MORE: AppTab[] = [
+const MOBILE_MORE_BASE: AppTab[] = [
   'hub',
   'fuel',
   'company',
@@ -50,10 +52,22 @@ const MOBILE_MORE: AppTab[] = [
 type SidebarProps = {
   activeTab: AppTab
   onChange: (tab: AppTab) => void
+  /** Show Admin tab (server-side isAdmin). */
+  showAdmin?: boolean
 }
 
-export function Sidebar({ activeTab, onChange }: SidebarProps) {
+export function Sidebar({
+  activeTab,
+  onChange,
+  showAdmin = false,
+}: SidebarProps) {
   const [moreOpen, setMoreOpen] = useState(false)
+  const TABS = showAdmin
+    ? ALL_TABS
+    : ALL_TABS.filter((t) => t.id !== 'admin')
+  const MOBILE_MORE = showAdmin
+    ? [...MOBILE_MORE_BASE, 'admin' as AppTab]
+    : MOBILE_MORE_BASE
   const moreActive = MOBILE_MORE.includes(activeTab)
 
   // Close sheet when leaving a "more" tab for a primary one

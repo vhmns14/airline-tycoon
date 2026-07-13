@@ -4,6 +4,7 @@
 
 import { useEffect, useState } from 'react'
 import { startHangarAmbience, stopHangarAmbience } from './sim/sound'
+import { AdminPanel } from './components/admin/AdminPanel'
 import { CompanyPanel } from './components/company/CompanyPanel'
 import { SetupModal } from './components/company/SetupModal'
 import { Dashboard } from './components/dashboard/Dashboard'
@@ -34,6 +35,7 @@ export default function App() {
   const syncMessage = useAuthStore((s) => s.syncMessage)
   const syncStatus = useAuthStore((s) => s.syncStatus)
   const user = useAuthStore((s) => s.user)
+  const isAdmin = !!user?.isAdmin
 
   useFlightTicker()
   useCloudSync()
@@ -42,6 +44,11 @@ export default function App() {
   useEffect(() => {
     if (!setupComplete) setTab('dashboard')
   }, [setupComplete])
+
+  // Leave admin tab if session loses admin flag
+  useEffect(() => {
+    if (tab === 'admin' && !isAdmin) setTab('dashboard')
+  }, [tab, isAdmin])
 
   // Soft hangar ambient when sound on
   useEffect(() => {
@@ -109,7 +116,7 @@ export default function App() {
       )}
 
       <div className="flex min-h-0 flex-1 flex-col sm:flex-row">
-        <Sidebar activeTab={tab} onChange={setTab} />
+        <Sidebar activeTab={tab} onChange={setTab} showAdmin={isAdmin} />
         <main className="main-scroll min-h-0 flex-1 overflow-auto p-2 pb-[calc(4.75rem+env(safe-area-inset-bottom))] sm:p-3 sm:pb-4 lg:p-4">
           <div key={tab} className="mx-auto w-full max-w-[1600px] animate-fade-in">
             {tab === 'dashboard' && <Dashboard />}
@@ -122,6 +129,7 @@ export default function App() {
             {tab === 'company' && <CompanyPanel />}
             {tab === 'bank' && <BankPanel />}
             {tab === 'finance' && <FinancePanel />}
+            {tab === 'admin' && <AdminPanel />}
           </div>
         </main>
       </div>
