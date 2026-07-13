@@ -907,13 +907,29 @@ export function WorldMap({ filterMode = 'all' }: WorldMapProps) {
           </ul>
         </div>
 
-        {/* Empty routes hint */}
-        {routes.length === 0 && (
-          <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
-            <div className="rounded-2xl border border-dashed border-slate-600/80 bg-slate-950/70 px-5 py-4 text-center text-sm text-slate-400 backdrop-blur-sm">
-              <p className="font-medium text-slate-300">No routes yet</p>
-              <p className="mt-1 text-xs text-slate-500">
-                Open a route in the Routes tab — arcs and planes will appear here.
+        {/* Empty routes hint — only when no network; cargo orange dots are not routes */}
+        {routes.length === 0 && displayLive.length === 0 && (
+          <div className="pointer-events-none absolute inset-x-0 bottom-14 flex justify-center px-3 sm:bottom-16">
+            <div className="max-w-sm rounded-xl border border-dashed border-slate-600/80 bg-slate-950/90 px-4 py-3 text-center text-sm text-slate-400 backdrop-blur-sm">
+              <p className="font-medium text-slate-300">
+                {cargoLanes.length > 0
+                  ? 'No flight routes on the map yet'
+                  : 'No routes yet'}
+              </p>
+              <p className="mt-1 text-xs leading-snug text-slate-500">
+                {cargoLanes.length > 0 ? (
+                  <>
+                    Orange dots are <span className="text-orange-300">cargo jobs</span>
+                    , not your network. Open a route in{' '}
+                    <span className="text-slate-300">Routes</span> (or Accept cargo
+                    → Assign freighter) to draw arcs.
+                  </>
+                ) : (
+                  <>
+                    Open a route in the Routes tab — arcs and planes will appear
+                    here.
+                  </>
+                )}
               </p>
             </div>
           </div>

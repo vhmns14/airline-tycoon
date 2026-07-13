@@ -8,6 +8,10 @@
  */
 
 import { useCallback, useEffect, useRef } from 'react'
+import {
+  enrichCloudWithLocal,
+  shouldPreferLocalOverCloud,
+} from '../lib/cloudMerge'
 import { apiGetSave, apiPutSave } from '../lib/api'
 import { useAuthStore } from '../store/authStore'
 import {
@@ -129,19 +133,40 @@ export function useCloudSync() {
       const local = serializeGameState(useGameStore.getState())
 
       if (save?.state) {
-        // Cloud is source of truth when logged in (includes any admin gift apply)
-        hydrateGameState(save.state as Partial<GameState>)
-        lastPushedJson.current = JSON.stringify(
-          serializeGameState(useGameStore.getState()),
-        )
-        if (cashGranted && cashGranted !== 0) {
+        const cloud = save.state as Partial<GameState>
+
+        // Don't let an empty/stale cloud wipe a richer local airline
+        if (shouldPreferLocalOverCloud(local, cloud)) {
+          pullReadyRef.current = true
+          await pushSave(true)
           setSyncStatus(
             'saved',
-            `Cloud loaded · admin ${cashGranted >= 0 ? 'gift' : 'fine'} applied`,
+            'Kept local progress (cloud was behind) · uploaded',
             save.updatedAt,
           )
         } else {
-          setSyncStatus('saved', 'Cloud progress loaded', save.updatedAt)
+          // Merge: cloud base + any local-only routes/planes
+          const merged = enrichCloudWithLocal(cloud, local)
+          hydrateGameState(merged)
+          lastPushedJson.current = JSON.stringify(
+            serializeGameState(useGameStore.getState()),
+          )
+          // If we recovered local-only routes, push merged state up
+          const mergedRoutes = merged.routes?.length ?? 0
+          const cloudRoutes = cloud.routes?.length ?? 0
+          if (mergedRoutes > cloudRoutes) {
+            pullReadyRef.current = true
+            await pushSave(true)
+          }
+          if (cashGranted && cashGranted !== 0) {
+            setSyncStatus(
+              'saved',
+              `Cloud loaded · admin ${cashGranted >= 0 ? 'gift' : 'fine'} applied`,
+              save.updatedAt,
+            )
+          } else {
+            setSyncStatus('saved', 'Cloud progress loaded', save.updatedAt)
+          }
         }
       } else if (local.setupComplete) {
         pullReadyRef.current = true
