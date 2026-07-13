@@ -10,6 +10,8 @@ import express from 'express'
 import { randomUUID } from 'node:crypto'
 import { loadEnvFile } from './loadEnv.ts'
 import {
+  applyPendingCashGrants,
+  createCashGrant,
   createUser,
   deleteSave,
   findUserById,
@@ -227,16 +229,36 @@ app.post('/api/auth/password', requireAuth, async (req: AuthedRequest, res) => {
 app.get('/api/save', requireAuth, (req: AuthedRequest, res) => {
   const save = getSave(req.userId!)
   if (!save) {
-    res.json({ save: null })
+    // No save yet — still apply grants into an empty shell? Skip until they have a save.
+    res.json({ save: null, cashGranted: 0 })
     return
   }
   try {
-    const state = JSON.parse(save.state_json)
+    let state = JSON.parse(save.state_json) as Record<string, unknown>
+    const applied = applyPendingCashGrants(req.userId!, state)
+    state = applied.state
+    let updatedAt = save.updated_at
+    if (applied.granted > 0) {
+      updatedAt = upsertSave(req.userId!, JSON.stringify(state))
+      try {
+        upsertLeaderboard(
+          req.userId!,
+          req.username ?? 'player',
+          Number(state.cash ?? 0),
+          Number(state.reputation ?? 0),
+          Array.isArray(state.ownedAircraft) ? state.ownedAircraft.length : 0,
+          Array.isArray(state.routes) ? state.routes.length : 0,
+        )
+      } catch {
+        /* ignore */
+      }
+    }
     res.json({
       save: {
         state,
-        updatedAt: save.updated_at,
+        updatedAt,
       },
+      cashGranted: applied.granted,
     })
   } catch {
     res.status(500).json({ error: 'Corrupt save data on server.' })
@@ -244,11 +266,18 @@ app.get('/api/save', requireAuth, (req: AuthedRequest, res) => {
 })
 
 app.put('/api/save', requireAuth, (req: AuthedRequest, res) => {
-  const state = req.body?.state
+  let state = req.body?.state
   if (!state || typeof state !== 'object') {
     res.status(400).json({ error: 'Missing game state payload.' })
     return
   }
+  // Apply admin gifts on top of whatever the client sent
+  const applied = applyPendingCashGrants(
+    req.userId!,
+    state as Record<string, unknown>,
+  )
+  state = applied.state
+
   let json: string
   try {
     json = JSON.stringify(state)
@@ -280,7 +309,12 @@ app.put('/api/save', requireAuth, (req: AuthedRequest, res) => {
   } catch {
     /* ignore */
   }
-  res.json({ ok: true, updatedAt })
+  res.json({
+    ok: true,
+    updatedAt,
+    cashGranted: applied.granted,
+    cash: Number((state as { cash?: number }).cash ?? 0),
+  })
 })
 
 app.delete('/api/save', requireAuth, (req: AuthedRequest, res) => {
@@ -306,6 +340,61 @@ app.post('/api/leaderboard', requireAuth, (req: AuthedRequest, res) => {
 })
 
 // ── Admin ──────────────────────────────────────────────────────────
+
+/** Gift in-game cash to a cloud player (applied on their next pull/push). */
+app.post(
+  '/api/admin/grant-cash',
+  requireAuth,
+  requireAdmin,
+  (req: AuthedRequest, res) => {
+    const { userId, username, amount, note } = req.body ?? {}
+    const amt = Number(amount)
+    if (!Number.isFinite(amt) || amt === 0) {
+      res.status(400).json({ error: 'amount must be a non-zero number.' })
+      return
+    }
+    if (Math.abs(amt) > 1_000_000_000) {
+      res.status(400).json({ error: 'amount too large (max ±1e9).' })
+      return
+    }
+    let target = typeof userId === 'string' ? findUserById(userId) : undefined
+    if (!target && typeof username === 'string') {
+      target = findUserByUsername(username)
+    }
+    if (!target) {
+      res.status(404).json({ error: 'Player not found.' })
+      return
+    }
+    const noteStr =
+      typeof note === 'string' ? note.trim().slice(0, 120) || null : null
+    const grant = createCashGrant(
+      randomUUID(),
+      target.id,
+      amt,
+      noteStr,
+      req.username ?? null,
+    )
+
+    // Stays pending until the player cloud-syncs (GET/PUT /api/save).
+    // That way online clients receive cashGranted on next push and bump local cash.
+    const save = getSave(target.id)
+    res.json({
+      ok: true,
+      grant: {
+        id: grant.id,
+        userId: target.id,
+        username: target.username,
+        amount: amt,
+        note: noteStr,
+      },
+      pending: true,
+      hasCloudSave: !!save,
+      message: save
+        ? `Queued ${amt >= 0 ? '+' : ''}$${Math.round(amt).toLocaleString()} for @${target.username} — applies on their next cloud sync (~4s if online).`
+        : `Queued for @${target.username} — no cloud save yet; applies when they log in & save.`,
+    })
+  },
+)
 
 app.get(
   '/api/admin/players',

@@ -45,6 +45,20 @@ db.exec(`
     updated_at INTEGER NOT NULL,
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
   );
+
+  CREATE TABLE IF NOT EXISTS pending_cash_grants (
+    id TEXT PRIMARY KEY NOT NULL,
+    user_id TEXT NOT NULL,
+    amount REAL NOT NULL,
+    note TEXT,
+    granted_by TEXT,
+    created_at INTEGER NOT NULL,
+    applied_at INTEGER,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_pending_grants_user
+    ON pending_cash_grants(user_id, applied_at);
 `)
 
 // Migrate older DBs that predate is_admin
@@ -118,6 +132,18 @@ export type PlayerSummary = {
   fleet: number | null
   routes: number | null
   setupComplete: boolean | null
+  /** Unapplied admin cash gifts (applied on next cloud pull/push). */
+  pendingCash: number
+}
+
+export type CashGrant = {
+  id: string
+  user_id: string
+  amount: number
+  note: string | null
+  granted_by: string | null
+  created_at: number
+  applied_at: number | null
 }
 
 export type DbSave = {
@@ -194,7 +220,11 @@ export function listPlayers(): PlayerSummary[] {
   const rows = db
     .prepare(
       `SELECT u.id, u.username, u.created_at, u.is_admin,
-              s.updated_at AS save_updated_at, s.state_json
+              s.updated_at AS save_updated_at, s.state_json,
+              COALESCE((
+                SELECT SUM(g.amount) FROM pending_cash_grants g
+                WHERE g.user_id = u.id AND g.applied_at IS NULL
+              ), 0) AS pending_cash
        FROM users u
        LEFT JOIN game_saves s ON s.user_id = u.id
        ORDER BY COALESCE(s.updated_at, 0) DESC, u.created_at DESC`,
@@ -206,6 +236,7 @@ export function listPlayers(): PlayerSummary[] {
     is_admin: number
     save_updated_at: number | null
     state_json: string | null
+    pending_cash: number
   }>
 
   return rows.map((r) => {
@@ -255,6 +286,7 @@ export function listPlayers(): PlayerSummary[] {
       fleet,
       routes,
       setupComplete,
+      pendingCash: Number(r.pending_cash) || 0,
     }
   })
 }
@@ -264,6 +296,128 @@ export function countUsers(): number {
     n: number
   }
   return Number(row?.n ?? 0)
+}
+
+export function createCashGrant(
+  id: string,
+  userId: string,
+  amount: number,
+  note: string | null,
+  grantedBy: string | null,
+): CashGrant {
+  const createdAt = Date.now()
+  db.prepare(
+    `INSERT INTO pending_cash_grants
+      (id, user_id, amount, note, granted_by, created_at, applied_at)
+     VALUES (?, ?, ?, ?, ?, ?, NULL)`,
+  ).run(id, userId, amount, note, grantedBy, createdAt)
+  return {
+    id,
+    user_id: userId,
+    amount,
+    note,
+    granted_by: grantedBy,
+    created_at: createdAt,
+    applied_at: null,
+  }
+}
+
+export function pendingCashTotal(userId: string): number {
+  const row = db
+    .prepare(
+      `SELECT COALESCE(SUM(amount), 0) AS n FROM pending_cash_grants
+       WHERE user_id = ? AND applied_at IS NULL`,
+    )
+    .get(userId) as { n: number }
+  return Number(row?.n ?? 0)
+}
+
+export function listPendingGrants(userId: string): CashGrant[] {
+  return db
+    .prepare(
+      `SELECT id, user_id, amount, note, granted_by, created_at, applied_at
+       FROM pending_cash_grants
+       WHERE user_id = ? AND applied_at IS NULL
+       ORDER BY created_at ASC`,
+    )
+    .all(userId) as CashGrant[]
+}
+
+function markGrantsApplied(ids: string[], at: number): void {
+  if (ids.length === 0) return
+  const stmt = db.prepare(
+    'UPDATE pending_cash_grants SET applied_at = ? WHERE id = ?',
+  )
+  for (const id of ids) stmt.run(at, id)
+}
+
+/**
+ * Fold pending admin cash gifts into a game state object.
+ * Mutates a shallow-cloned state; marks grants applied.
+ * Returns total amount granted this call.
+ */
+export function applyPendingCashGrants(
+  userId: string,
+  state: Record<string, unknown>,
+): { state: Record<string, unknown>; granted: number; notes: string[] } {
+  const grants = listPendingGrants(userId)
+  if (grants.length === 0) {
+    return { state, granted: 0, notes: [] }
+  }
+
+  const total = grants.reduce((s, g) => s + Number(g.amount), 0)
+  const notes = grants.map((g) => {
+    const who = g.granted_by ? ` from @${g.granted_by}` : ''
+    const n = g.note ? ` — ${g.note}` : ''
+    return `Admin gift +$${Math.round(g.amount).toLocaleString()}${who}${n}`
+  })
+
+  const cash = Number(state.cash ?? 0) + total
+  const peakCash = Math.max(Number(state.peakCash ?? 0), cash)
+  const now = Date.now()
+
+  // Best-effort finance log + toast on the save blob
+  const financeLog = Array.isArray(state.financeLog)
+    ? [...(state.financeLog as unknown[])]
+    : []
+  for (const g of grants) {
+    financeLog.unshift({
+      id: g.id,
+      at: now,
+      kind: 'other',
+      label: `Admin gift${g.note ? `: ${g.note}` : ''}${g.granted_by ? ` (@${g.granted_by})` : ''}`,
+      amount: g.amount,
+    })
+  }
+
+  const notifications = Array.isArray(state.notifications)
+    ? [...(state.notifications as unknown[])]
+    : []
+  for (const text of notes) {
+    notifications.unshift({
+      id: crypto.randomUUID(),
+      at: now,
+      tone: 'good',
+      text,
+    })
+  }
+
+  markGrantsApplied(
+    grants.map((g) => g.id),
+    now,
+  )
+
+  return {
+    state: {
+      ...state,
+      cash,
+      peakCash,
+      financeLog: financeLog.slice(0, 80),
+      notifications: notifications.slice(0, 40),
+    },
+    granted: total,
+    notes,
+  }
 }
 
 export function getSave(userId: string): DbSave | undefined {

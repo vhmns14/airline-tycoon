@@ -42,8 +42,36 @@ export function useCloudSync() {
       setSyncStatus('saving', 'Saving to cloud…')
       try {
         const res = await apiPutSave(t, state)
-        lastPushedJson.current = json
-        setSyncStatus('saved', 'Cloud save OK', res.updatedAt)
+        // Admin cash gift applied server-side on this push — bump local wallet
+        if (res.cashGranted && res.cashGranted !== 0) {
+          useGameStore.setState((s) => {
+            const cash = s.cash + res.cashGranted!
+            return {
+              cash,
+              peakCash: Math.max(s.peakCash, cash),
+              notifications: [
+                {
+                  id: crypto.randomUUID(),
+                  at: Date.now(),
+                  tone: 'good' as const,
+                  text: `Admin gift ${res.cashGranted! >= 0 ? '+' : ''}$${Math.round(res.cashGranted!).toLocaleString()}`,
+                },
+                ...(s.notifications ?? []),
+              ].slice(0, 40),
+            }
+          })
+          lastPushedJson.current = JSON.stringify(
+            serializeGameState(useGameStore.getState()),
+          )
+          setSyncStatus(
+            'saved',
+            `Cloud save OK · admin gift ${res.cashGranted >= 0 ? '+' : ''}$${Math.round(res.cashGranted).toLocaleString()}`,
+            res.updatedAt,
+          )
+        } else {
+          lastPushedJson.current = json
+          setSyncStatus('saved', 'Cloud save OK', res.updatedAt)
+        }
       } catch (e) {
         const msg = e instanceof Error ? e.message : 'Cloud save failed'
         setSyncStatus('error', msg)

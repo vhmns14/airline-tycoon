@@ -106,14 +106,20 @@ export function apiChangePassword(
 
 export function apiGetSave(
   token: string,
-): Promise<{ save: CloudSave | null }> {
+): Promise<{ save: CloudSave | null; cashGranted?: number }> {
   return request('/api/save', { token })
 }
 
 export function apiPutSave(
   token: string,
   state: GameState,
-): Promise<{ ok: boolean; updatedAt: number }> {
+): Promise<{
+  ok: boolean
+  updatedAt: number
+  /** Admin cash gift applied during this push — client should bump local cash. */
+  cashGranted?: number
+  cash?: number
+}> {
   return request('/api/save', {
     method: 'PUT',
     token,
@@ -168,6 +174,33 @@ export type AdminPlayer = {
   fleet: number | null
   routes: number | null
   setupComplete: boolean | null
+  pendingCash: number
+}
+
+export function apiAdminGrantCash(
+  token: string,
+  body: {
+    userId?: string
+    username?: string
+    amount: number
+    note?: string
+  },
+): Promise<{
+  ok: boolean
+  message: string
+  grant: {
+    id: string
+    userId: string
+    username: string
+    amount: number
+    note: string | null
+  }
+}> {
+  return request('/api/admin/grant-cash', {
+    method: 'POST',
+    token,
+    body: JSON.stringify(body),
+  })
 }
 
 export type AdminPlayersResponse = {

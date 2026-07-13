@@ -5,11 +5,14 @@
 import { useCallback, useEffect, useState } from 'react'
 import { formatMoney } from '../../lib/format'
 import {
+  apiAdminGrantCash,
   apiAdminPlayers,
   apiChangePassword,
   type AdminPlayer,
 } from '../../lib/api'
 import { useAuthStore } from '../../store/authStore'
+
+const PRESETS = [50_000, 100_000, 250_000, 500_000, 1_000_000]
 
 function fmtWhen(ts: number | null | undefined): string {
   if (ts == null) return '—'
@@ -44,6 +47,11 @@ export function AdminPanel() {
   const [newPw, setNewPw] = useState('')
   const [pwMsg, setPwMsg] = useState<string | null>(null)
   const [pwBusy, setPwBusy] = useState(false)
+  const [grantUserId, setGrantUserId] = useState<string>('')
+  const [grantAmount, setGrantAmount] = useState('100000')
+  const [grantNote, setGrantNote] = useState('')
+  const [grantMsg, setGrantMsg] = useState<string | null>(null)
+  const [grantBusy, setGrantBusy] = useState(false)
 
   const load = useCallback(async () => {
     if (!token) {
@@ -186,6 +194,132 @@ export function AdminPanel() {
         </div>
       </div>
 
+      {/* Gift money */}
+      <div className="game-panel">
+        <div className="game-panel-header">
+          <h3 className="game-panel-title">💵 Gift cash</h3>
+          <span className="text-[10px] text-[var(--game-dim)]">
+            Applies on player cloud sync (~4s if online)
+          </span>
+        </div>
+        <div className="game-panel-body space-y-2">
+          <form
+            className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-end"
+            onSubmit={async (e) => {
+              e.preventDefault()
+              if (!token || !grantUserId) return
+              const amount = Number(grantAmount.replace(/,/g, ''))
+              if (!Number.isFinite(amount) || amount === 0) {
+                setGrantMsg('Enter a non-zero amount.')
+                return
+              }
+              setGrantBusy(true)
+              setGrantMsg(null)
+              try {
+                const res = await apiAdminGrantCash(token, {
+                  userId: grantUserId,
+                  amount,
+                  note: grantNote.trim() || undefined,
+                })
+                setGrantMsg(res.message)
+                setGrantNote('')
+                await load()
+              } catch (err) {
+                setGrantMsg(
+                  err instanceof Error ? err.message : 'Grant failed',
+                )
+              } finally {
+                setGrantBusy(false)
+              }
+            }}
+          >
+            <label className="min-w-[12rem] flex-1">
+              <span className="text-[10px] font-semibold uppercase tracking-wider text-[var(--game-dim)]">
+                Player
+              </span>
+              <select
+                className="game-input mt-0.5 w-full !py-1.5"
+                value={grantUserId}
+                onChange={(e) => setGrantUserId(e.target.value)}
+                required
+              >
+                <option value="">Select player…</option>
+                {players.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    @{p.username}
+                    {p.airlineName ? ` · ${p.airlineName}` : ''}
+                    {p.cash != null ? ` · ${formatMoney(p.cash)}` : ''}
+                    {(p.pendingCash ?? 0) > 0
+                      ? ` · pending +${formatMoney(p.pendingCash)}`
+                      : ''}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="min-w-[8rem] w-full sm:w-40">
+              <span className="text-[10px] font-semibold uppercase tracking-wider text-[var(--game-dim)]">
+                Amount ($)
+              </span>
+              <input
+                className="game-input mt-0.5 w-full !py-1.5"
+                inputMode="decimal"
+                value={grantAmount}
+                onChange={(e) => setGrantAmount(e.target.value)}
+                placeholder="100000"
+                required
+              />
+            </label>
+            <label className="min-w-[10rem] flex-1">
+              <span className="text-[10px] font-semibold uppercase tracking-wider text-[var(--game-dim)]">
+                Note (optional)
+              </span>
+              <input
+                className="game-input mt-0.5 w-full !py-1.5"
+                value={grantNote}
+                onChange={(e) => setGrantNote(e.target.value)}
+                placeholder="Season reward, bug fix…"
+                maxLength={120}
+              />
+            </label>
+            <button
+              type="submit"
+              className="btn-game btn-game-success !min-h-[2.5rem] !text-xs"
+              disabled={grantBusy || !grantUserId}
+            >
+              {grantBusy ? 'Sending…' : 'Send cash'}
+            </button>
+          </form>
+          <div className="flex flex-wrap gap-1">
+            {PRESETS.map((n) => (
+              <button
+                key={n}
+                type="button"
+                className="btn-game btn-game-ghost !py-1 !text-[10px]"
+                onClick={() => setGrantAmount(String(n))}
+              >
+                +{formatMoney(n)}
+              </button>
+            ))}
+            <button
+              type="button"
+              className="btn-game btn-game-ghost !py-1 !text-[10px]"
+              onClick={() =>
+                setGrantAmount((a) => {
+                  const n = Number(a)
+                  return Number.isFinite(n) ? String(-Math.abs(n)) : '-100000'
+                })
+              }
+              title="Fine / remove cash"
+            >
+              Fine (−)
+            </button>
+          </div>
+          {grantMsg && (
+            <p className="text-xs text-[var(--game-olive)]">{grantMsg}</p>
+          )}
+        </div>
+      </div>
+
       <div className="game-panel">
         <div className="game-panel-header flex-wrap gap-2">
           <h3 className="game-panel-title">Players</h3>
@@ -212,24 +346,28 @@ export function AdminPanel() {
             <>
               {/* Desktop table */}
               <div className="hidden overflow-x-auto sm:block">
-                <table className="w-full min-w-[720px] text-left text-sm">
+                <table className="w-full min-w-[820px] text-left text-sm">
                   <thead>
                     <tr className="border-b border-[rgba(160,145,120,0.15)] text-[10px] uppercase tracking-wider text-[var(--game-dim)]">
                       <th className="px-3 py-2 font-semibold">User</th>
                       <th className="px-3 py-2 font-semibold">Airline</th>
                       <th className="px-3 py-2 font-semibold">Hub</th>
                       <th className="px-3 py-2 font-semibold">Cash</th>
+                      <th className="px-3 py-2 font-semibold">Pending</th>
                       <th className="px-3 py-2 font-semibold">Fleet</th>
                       <th className="px-3 py-2 font-semibold">Routes</th>
                       <th className="px-3 py-2 font-semibold">Last save</th>
-                      <th className="px-3 py-2 font-semibold">Joined</th>
+                      <th className="px-3 py-2 font-semibold">Gift</th>
                     </tr>
                   </thead>
                   <tbody>
                     {filtered.map((p) => (
                       <tr
                         key={p.id}
-                        className="border-b border-[rgba(160,145,120,0.08)] hover:bg-black/15"
+                        className={[
+                          'border-b border-[rgba(160,145,120,0.08)] hover:bg-black/15',
+                          grantUserId === p.id ? 'bg-[rgba(196,163,90,0.08)]' : '',
+                        ].join(' ')}
                       >
                         <td className="px-3 py-2">
                           <span className="font-semibold">@{p.username}</span>
@@ -254,6 +392,11 @@ export function AdminPanel() {
                         <td className="px-3 py-2 tabular-nums text-[var(--game-cash)]">
                           {p.cash != null ? formatMoney(p.cash) : '—'}
                         </td>
+                        <td className="px-3 py-2 tabular-nums text-[var(--game-brass)]">
+                          {(p.pendingCash ?? 0) !== 0
+                            ? formatMoney(p.pendingCash)
+                            : '—'}
+                        </td>
                         <td className="px-3 py-2 tabular-nums">{p.fleet ?? '—'}</td>
                         <td className="px-3 py-2 tabular-nums">
                           {p.routes ?? '—'}
@@ -264,11 +407,14 @@ export function AdminPanel() {
                         >
                           {relative(p.saveUpdatedAt)}
                         </td>
-                        <td
-                          className="px-3 py-2 text-xs text-[var(--game-dim)]"
-                          title={fmtWhen(p.createdAt)}
-                        >
-                          {fmtWhen(p.createdAt)}
+                        <td className="px-3 py-2">
+                          <button
+                            type="button"
+                            className="btn-game btn-game-ghost !px-2 !py-1 !text-[10px]"
+                            onClick={() => setGrantUserId(p.id)}
+                          >
+                            Select
+                          </button>
                         </td>
                       </tr>
                     ))}
@@ -289,17 +435,24 @@ export function AdminPanel() {
                           </span>
                         )}
                       </span>
-                      <span className="text-[10px] text-[var(--game-dim)]">
-                        {relative(p.saveUpdatedAt)}
-                      </span>
+                      <button
+                        type="button"
+                        className="btn-game btn-game-ghost !px-2 !py-0.5 !text-[10px]"
+                        onClick={() => setGrantUserId(p.id)}
+                      >
+                        Gift
+                      </button>
                     </div>
                     <p className="mt-0.5 text-xs text-[var(--game-muted)]">
                       {p.airlineName ?? 'no airline'} · hub{' '}
                       {(p.hubId ?? '—').toUpperCase()}
                     </p>
                     <p className="mt-0.5 text-[11px] tabular-nums text-[var(--game-dim)]">
-                      {p.cash != null ? formatMoney(p.cash) : '— cash'} ·{' '}
-                      {p.fleet ?? 0} fleet · {p.routes ?? 0} routes
+                      {p.cash != null ? formatMoney(p.cash) : '— cash'}
+                      {(p.pendingCash ?? 0) !== 0
+                        ? ` · pending ${formatMoney(p.pendingCash)}`
+                        : ''}{' '}
+                      · {p.fleet ?? 0} fleet · {p.routes ?? 0} routes
                     </p>
                   </li>
                 ))}
@@ -310,10 +463,8 @@ export function AdminPanel() {
       </div>
 
       <p className="text-[10px] text-[var(--game-dim)]">
-        Stats come from the latest cloud save (not live guest-only play).
-        Set <code className="text-[var(--game-muted)]">ADMIN_USERNAME</code> +{' '}
-        <code className="text-[var(--game-muted)]">ADMIN_PASSWORD</code> on the
-        API process to create/promote an admin.
+        Cash gifts queue until the player&apos;s next cloud sync (auto ~4s while
+        logged in). Guest-only play without login is not on this list.
       </p>
     </div>
   )
