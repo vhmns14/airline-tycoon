@@ -24,6 +24,8 @@ import {
   setUserAdmin,
   setUserPasswordHash,
   topLeaderboard,
+  ensureDbReady,
+  persistDb,
   upsertLeaderboard,
   upsertSave,
 } from './db.ts'
@@ -43,18 +45,25 @@ export const app = express()
 app.use(cors({ origin: true, credentials: true }))
 app.use(express.json({ limit: '4mb' }))
 
-/** Resolve once; used by local listen + serverless cold start. */
-export const adminReady = bootstrapAdmin().catch((err) => {
-  console.error('Admin bootstrap failed', err)
+/** DB hydrate + admin seed (local listen + serverless cold start). */
+export const adminReady = (async () => {
+  await ensureDbReady()
+  await bootstrapAdmin()
+})().catch((err) => {
+  console.error('DB/admin bootstrap failed', err)
 })
 
-// Ensure admin seed before requests (must register before routes)
-app.use(async (_req, _res, next) => {
+// Ensure DB ready before requests; flush SQLite → Blob after responses
+app.use(async (_req, res, next) => {
   try {
     await adminReady
+    await ensureDbReady()
   } catch {
     /* already logged */
   }
+  res.on('finish', () => {
+    void persistDb().catch((err) => console.error('persistDb', err))
+  })
   next()
 })
 
@@ -119,6 +128,13 @@ async function bootstrapAdmin(): Promise<void> {
   const hash = await hashPassword(password)
   createUser(id, username, hash, true)
   console.log(`Admin: created @${username}`)
+  // Seed blob store immediately so other instances see the admin
+  try {
+    const { persistDb } = await import('./db.ts')
+    await persistDb()
+  } catch (e) {
+    console.warn('Admin: blob flush after create failed', e)
+  }
 }
 
 async function requireAuth(

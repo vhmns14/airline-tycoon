@@ -68,7 +68,7 @@ Set project env vars in Vercel (Production + Preview):
 | `ADMIN_USERNAME` | Optional admin seed |
 | `ADMIN_PASSWORD` | Optional, min 6 |
 
-**Caveat:** SQLite on Vercel lives under `/tmp` — cloud saves can reset on cold starts. Guest play (localStorage) is fine. For durable multiplayer cloud, migrate DB later (Turso/Postgres).
+**Cloud DB:** SQLite file is synced to **Vercel Blob** (`BLOB_READ_WRITE_TOKEN`) so player accounts survive cold starts. Guest play still uses browser localStorage.
 
 ```bash
 npm run dev:server   # API only

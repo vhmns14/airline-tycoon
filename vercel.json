@@ -15,5 +15,6 @@
       "maxDuration": 30,
       "includeFiles": "server/**"
     }
-  }
+  },
+  "regions": ["iad1"]
 }

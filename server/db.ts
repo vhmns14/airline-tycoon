@@ -1,33 +1,34 @@
 /**
  * SQLite persistence (Node experimental node:sqlite).
- * Data lives in server/data/airline-tycoon.db
+ *
+ * Local: server/data/airline-tycoon.db
+ * Vercel: /tmp + sync to Vercel Blob (BLOB_READ_WRITE_TOKEN) so instances share data
  */
 
 import { mkdirSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { DatabaseSync } from 'node:sqlite'
+import {
+  flushDbNow,
+  markDbDirty,
+  pullDbFromBlob,
+} from './dbBlob.ts'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
-/**
- * Local: server/data/
- * Vercel: /tmp (ephemeral — cloud saves may reset on cold starts / new instances).
- * For durable production cloud, move to Postgres/Turso later.
- */
+
 const dataDir =
   process.env.SQLITE_PATH
     ? dirname(process.env.SQLITE_PATH)
     : process.env.VERCEL
       ? join('/tmp', 'airline-tycoon')
       : join(__dirname, 'data')
-const dbPath =
+export const dbPath =
   process.env.SQLITE_PATH ?? join(dataDir, 'airline-tycoon.db')
 
 mkdirSync(dataDir, { recursive: true })
 
-export const db = new DatabaseSync(dbPath)
-
-db.exec(`
+const SCHEMA = `
   PRAGMA journal_mode = WAL;
   PRAGMA foreign_keys = ON;
 
@@ -70,13 +71,66 @@ db.exec(`
 
   CREATE INDEX IF NOT EXISTS idx_pending_grants_user
     ON pending_cash_grants(user_id, applied_at);
-`)
+`
 
-// Migrate older DBs that predate is_admin
-try {
-  db.exec(`ALTER TABLE users ADD COLUMN is_admin INTEGER NOT NULL DEFAULT 0`)
-} catch {
-  /* column already exists */
+let _db: DatabaseSync | null = null
+let readyPromise: Promise<void> | null = null
+
+function openAndMigrate(path: string): DatabaseSync {
+  const instance = new DatabaseSync(path)
+  instance.exec(SCHEMA)
+  try {
+    instance.exec(
+      `ALTER TABLE users ADD COLUMN is_admin INTEGER NOT NULL DEFAULT 0`,
+    )
+  } catch {
+    /* column already exists */
+  }
+  return instance
+}
+
+/**
+ * Pull Blob → open SQLite. Call once before handling API traffic.
+ * Local (no blob token): opens file immediately.
+ */
+export async function ensureDbReady(): Promise<void> {
+  if (_db) return
+  if (!readyPromise) {
+    readyPromise = (async () => {
+      await pullDbFromBlob(dbPath)
+      _db = openAndMigrate(dbPath)
+    })()
+  }
+  await readyPromise
+}
+
+/** Sync accessor — only after ensureDbReady(). */
+export const db: DatabaseSync = new Proxy({} as DatabaseSync, {
+  get(_target, prop, receiver) {
+    if (!_db) {
+      // Lazy open for local scripts that skip ensureDbReady
+      if (!process.env.VERCEL && !process.env.BLOB_READ_WRITE_TOKEN) {
+        _db = openAndMigrate(dbPath)
+      } else {
+        throw new Error('Database not ready — await ensureDbReady() first')
+      }
+    }
+    const value = Reflect.get(_db, prop, receiver)
+    return typeof value === 'function' ? value.bind(_db) : value
+  },
+})
+
+export function checkpointDb(): void {
+  try {
+    db.exec('PRAGMA wal_checkpoint(TRUNCATE);')
+  } catch {
+    /* ignore */
+  }
+}
+
+/** Upload SQLite to Blob if dirty (Vercel). */
+export async function persistDb(): Promise<void> {
+  await flushDbNow(dbPath, checkpointDb)
 }
 
 export type LbRow = {
@@ -109,6 +163,7 @@ export function upsertLeaderboard(
        routes = excluded.routes,
        updated_at = excluded.updated_at`,
   ).run(userId, username, cash, reputation, fleet, routes, updatedAt)
+  markDbDirty()
 }
 
 export function topLeaderboard(limit = 20): LbRow[] {
@@ -199,6 +254,7 @@ export function createUser(
   db.prepare(
     'INSERT INTO users (id, username, password_hash, created_at, is_admin) VALUES (?, ?, ?, ?, ?)',
   ).run(id, username.trim(), passwordHash, createdAt, isAdmin ? 1 : 0)
+  markDbDirty()
   return {
     id,
     username: username.trim(),
@@ -213,6 +269,7 @@ export function setUserAdmin(userId: string, isAdmin: boolean): void {
     isAdmin ? 1 : 0,
     userId,
   )
+  markDbDirty()
 }
 
 export function setUserPasswordHash(userId: string, passwordHash: string): void {
@@ -220,6 +277,7 @@ export function setUserPasswordHash(userId: string, passwordHash: string): void 
     passwordHash,
     userId,
   )
+  markDbDirty()
 }
 
 export function isUserAdmin(user: DbUser | undefined | null): boolean {
@@ -315,6 +373,32 @@ export function countUsers(): number {
   return Number(row?.n ?? 0)
 }
 
+export function getSave(userId: string): DbSave | undefined {
+  return db
+    .prepare(
+      'SELECT user_id, state_json, updated_at FROM game_saves WHERE user_id = ?',
+    )
+    .get(userId) as DbSave | undefined
+}
+
+export function upsertSave(userId: string, stateJson: string): number {
+  const updatedAt = Date.now()
+  db.prepare(
+    `INSERT INTO game_saves (user_id, state_json, updated_at)
+     VALUES (?, ?, ?)
+     ON CONFLICT(user_id) DO UPDATE SET
+       state_json = excluded.state_json,
+       updated_at = excluded.updated_at`,
+  ).run(userId, stateJson, updatedAt)
+  markDbDirty()
+  return updatedAt
+}
+
+export function deleteSave(userId: string): void {
+  db.prepare('DELETE FROM game_saves WHERE user_id = ?').run(userId)
+  markDbDirty()
+}
+
 export function createCashGrant(
   id: string,
   userId: string,
@@ -328,6 +412,7 @@ export function createCashGrant(
       (id, user_id, amount, note, granted_by, created_at, applied_at)
      VALUES (?, ?, ?, ?, ?, ?, NULL)`,
   ).run(id, userId, amount, note, grantedBy, createdAt)
+  markDbDirty()
   return {
     id,
     user_id: userId,
@@ -363,10 +448,7 @@ export function listAllGrants(userId: string): CashGrant[] {
 
 /**
  * Idempotent admin cash apply.
- *
  * Tracks how much gift total the save already absorbed via `adminCashReceived`.
- * delta = sum(all grants) - adminCashReceived → add to cash.
- * Survives client overwriting cash: next sync re-applies any missing delta.
  */
 export function applyPendingCashGrants(
   userId: string,
@@ -377,7 +459,6 @@ export function applyPendingCashGrants(
   const delta = total - received
 
   if (!Number.isFinite(delta) || delta === 0) {
-    // Still stamp the counter so future loads are stable
     if (total > 0 && received !== total) {
       return {
         state: { ...state, adminCashReceived: total },
@@ -419,11 +500,11 @@ export function applyPendingCashGrants(
         : `Admin fine −$${Math.round(Math.abs(delta)).toLocaleString()}`,
   })
 
-  // Mark rows applied for admin UI bookkeeping (optional; ledger still uses SUM)
   db.prepare(
     `UPDATE pending_cash_grants SET applied_at = ?
      WHERE user_id = ? AND applied_at IS NULL`,
   ).run(now, userId)
+  markDbDirty()
 
   return {
     state: {
@@ -441,28 +522,4 @@ export function applyPendingCashGrants(
         : `Admin fine −$${Math.round(Math.abs(delta)).toLocaleString()}`,
     ],
   }
-}
-
-export function getSave(userId: string): DbSave | undefined {
-  return db
-    .prepare(
-      'SELECT user_id, state_json, updated_at FROM game_saves WHERE user_id = ?',
-    )
-    .get(userId) as DbSave | undefined
-}
-
-export function upsertSave(userId: string, stateJson: string): number {
-  const updatedAt = Date.now()
-  db.prepare(
-    `INSERT INTO game_saves (user_id, state_json, updated_at)
-     VALUES (?, ?, ?)
-     ON CONFLICT(user_id) DO UPDATE SET
-       state_json = excluded.state_json,
-       updated_at = excluded.updated_at`,
-  ).run(userId, stateJson, updatedAt)
-  return updatedAt
-}
-
-export function deleteSave(userId: string): void {
-  db.prepare('DELETE FROM game_saves WHERE user_id = ?').run(userId)
 }
